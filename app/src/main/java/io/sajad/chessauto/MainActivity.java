@@ -180,7 +180,7 @@ public final class MainActivity extends Activity {
                 ui.post(() -> {
                     if (!running || generation != token || !board.getFen().equals(fen)) return;
                     try {
-                        Move move = board.fromUci(uci);
+                        Move move = new Move(uci, board.getSideToMove());
                         if (!board.isMoveLegal(move, true)) {
                             throw new IllegalStateException("محرك الشطرنج أعطى نقلة غير قانونية: " + uci);
                         }
