@@ -1,7 +1,7 @@
-name: Chess AI External v2 Android APK
+name: Chess AI v3 ScreenFix APK
 on:
   push:
-    branches: [chess-ai-external-v2]
+    branches: [chess-ai-v3-screenfix]
   workflow_dispatch:
 permissions:
   contents: read
@@ -44,7 +44,7 @@ jobs:
       - name: Publish installable APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chess-ai-external-v2-apk
+          name: chess-ai-v3-screenfix-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30

@@ -265,7 +265,12 @@ public final class MainActivity extends Activity {
                 android.media.projection.MediaProjectionManager manager =
                     (android.media.projection.MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
                 externalStatus.setText("وافق على مشاركة الشاشة بالكامل، ثم افتح لعبة الشطرنج.");
-                startActivityForResult(manager.createScreenCaptureIntent(), 991);
+                android.content.Intent permission =
+                    android.os.Build.VERSION.SDK_INT >= 34
+                    ? manager.createScreenCaptureIntent(
+                        android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay())
+                    : manager.createScreenCaptureIntent();
+                startActivityForResult(permission, 991);
             } catch (Exception e) {
                 externalStatus.setText("تعذر طلب المشاركة: " + e.getMessage());
             }

@@ -26,7 +26,9 @@ public final class ExternalController {
     private final StockfishEngine engine;
     private Board board = new Board();
     private float[] reference;
-    private RectF bounds;
+    private RectF bounds; // TOUCH / overlay board rectangle in display pixels
+    private int expectedScreenW, expectedScreenH;
+    private boolean calibrationInvalidated;
     private boolean whiteBottom;
     private final boolean botWhite;
     private final boolean automatic;
@@ -72,6 +74,7 @@ public final class ExternalController {
             return;
         }
         bounds = new RectF(rectangle.left, rectangle.top, rectangle.left + d, rectangle.top + d);
+        calibrationInvalidated=false;
         resetPosition();
         notifyStatus("تم تحديد حدود الرقعة. جاري التحقق من أماكن القطع...");
     }
@@ -81,6 +84,46 @@ public final class ExternalController {
     }
 
     public boolean isWhiteBottom() { return whiteBottom; }
+
+    public synchronized void onCaptureResize() {
+        // A projection content size change invalidates all coordinates and fingerprints.
+        calibrationInvalidated=true;
+        bounds=null;
+        positionVerified=false;
+        proposed=null;
+        reference=null;
+        lastCandidate=null;
+        candidateRepeats=0;
+        if (OverlayAccessibility.active != null)
+            OverlayAccessibility.active.showMove(null,null,null,whiteBottom);
+    }
+
+    /** Convert calibrated screen pixels into coordinates in a full-display projection.
+     * If aspect ratios don't match, refuse to analyze or tap. */
+    private RectF capturedBoard(Bitmap image) {
+        if (bounds==null || calibrationInvalidated) return null;
+        android.view.WindowManager wm =
+            (android.view.WindowManager)context.getSystemService(Context.WINDOW_SERVICE);
+        int w,h;
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            android.graphics.Rect rect=wm.getMaximumWindowMetrics().getBounds();
+            w=rect.width();h=rect.height();
+        } else {
+            android.graphics.Point point=new android.graphics.Point();
+            wm.getDefaultDisplay().getRealSize(point);
+            w=point.x;h=point.y;
+        }
+        if (w<=0||h<=0) return null;
+        float sx=image.getWidth()/(float)w,sy=image.getHeight()/(float)h;
+        if (Math.abs(sx-sy) > .04f) {
+            notifyStatus("مشاركة تطبيق واحد أو اختلاف أبعاد العرض: شارك الشاشة كاملة وأعد المعايرة");
+            return null;
+        }
+        RectF capture=new RectF(bounds.left*sx,bounds.top*sy,
+            bounds.right*sx,bounds.bottom*sy);
+        return capture.right<=image.getWidth() && capture.bottom<=image.getHeight()
+            && capture.left>=0 && capture.top>=0 ? capture : null;
+    }
 
     public synchronized void resetPosition() {
         board = new Board();
@@ -110,17 +153,14 @@ public final class ExternalController {
     public synchronized void onFrame(Bitmap image) {
         try {
             if (stopped || bounds == null) return;
-            if (image.getWidth() < bounds.right || image.getHeight() < bounds.bottom) {
-                notifyStatus("حجم الشاشة تغير. أعد تحديد الرقعة");
-                bounds = null;
-                return;
-            }
+            RectF captured = capturedBoard(image);
+            if (captured == null) return;
             // Never offer moves or execute gestures from a guessed or stale board.
             // Validate visible occupancy, including orientation, against the exact FEN.
             if (!positionVerified) {
                 if (++framesSinceCheck < 3) return;
                 framesSinceCheck = 0;
-                if (!verifyBoardOccupancy(image, bounds, board.getFen())) {
+                if (!verifyBoardOccupancy(image, captured, board.getFen())) {
                     long now = android.os.SystemClock.elapsedRealtime();
                     if (now - lastWarningTime > 2000) {
                         notifyStatus(requestedFen.isEmpty()
@@ -131,12 +171,12 @@ public final class ExternalController {
                     return;
                 }
                 positionVerified = true;
-                reference = sample(image, bounds);
+                reference = sample(image, captured);
                 notifyStatus("✓ تم التحقق من ترتيب القطع. جاهز لمتابعة المباراة");
                 maybeThink();
                 return;
             }
-            float[] current = sample(image, bounds);
+            float[] current = sample(image, captured);
             if (reference == null) {
                 reference = current;
                 maybeThink();
@@ -189,7 +229,7 @@ public final class ExternalController {
             if (!predicted.doMove(move, true)) return;
             // A pixel-change pattern alone is not sufficient. Reject a candidate
             // whose resulting occupancy doesn't match the actual screenshot.
-            if (!verifyBoardOccupancy(image, bounds, predicted.getFen())) {
+            if (!verifyBoardOccupancy(image, captured, predicted.getFen())) {
                 lastCandidate = null;
                 candidateRepeats = 0;
                 notifyStatus("لم نتأكد من النقلة. لن نحرك قطعة حتى تتحقق المطابقة");

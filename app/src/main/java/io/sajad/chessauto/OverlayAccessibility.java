@@ -73,15 +73,9 @@ public final class OverlayAccessibility extends AccessibilityService {
                     int row = whiteBottom ? 7-rank : rank;
                     float d = bounds.width()/8f;
                     float x = bounds.left + col*d, y = bounds.top + row*d;
-                    // Entire source and destination squares are visibly marked,
-                    // instead of drawing a box floating inside an empty square.
-                    pen.setStyle(Paint.Style.FILL);
-                    pen.setColor(color == Color.BLACK
-                        ? Color.argb(110,0,0,0)
-                        : Color.argb(105,11,225,66));
-                    canvas.drawRect(x,y,x+d,y+d,pen);
+                    // Outline only: do not hide pieces or obscure screenshots.
                     pen.setStyle(Paint.Style.STROKE);
-                    pen.setStrokeWidth(Math.max(3,d*.07f));
+                    pen.setStrokeWidth(Math.max(4,d*.07f));
                     pen.setColor(color == Color.BLACK ? Color.BLACK : Color.rgb(0,210,45));
                     canvas.drawRect(x+3,y+3,x+d-3,y+d-3,pen);
                 }
