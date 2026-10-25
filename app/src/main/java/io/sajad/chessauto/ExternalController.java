@@ -39,6 +39,8 @@ public final class ExternalController {
     private boolean whiteBottom;
     private final boolean botWhite;
     private final boolean automatic;
+    /** Explicit manual FEN mode: visual hints ONLY, never accessibility auto-gestures. */
+    private final boolean manualFenHints;
     private boolean stopped;
     private boolean thinking;
     private String proposed;
@@ -50,11 +52,12 @@ public final class ExternalController {
     private int framesSinceCheck;
     private long lastWarningTime;
 
-    private ExternalController(Context c, boolean white, boolean auto, String positionFen, boolean whiteAtBottom, int thinkingMs, boolean useDrag) {
+    private ExternalController(Context c, boolean white, boolean auto, String positionFen, boolean whiteAtBottom, int thinkingMs, boolean useDrag, boolean manualHints) {
         context = c.getApplicationContext();
         engine = new StockfishEngine(context);
         botWhite = white;
-        automatic = auto;
+        automatic = auto && !manualHints;
+        manualFenHints = manualHints;
         whiteBottom = whiteAtBottom;
         thinkMs = thinkingMs;
         dragMode = useDrag;
@@ -63,8 +66,20 @@ public final class ExternalController {
 
     public static void begin(Context context, boolean botWhite, boolean automatic, String positionFen, boolean whiteAtBottom, int thinkingMs, boolean useDrag) {
         if (active != null) active.stop();
-        active = new ExternalController(context, botWhite, automatic, positionFen, whiteAtBottom, thinkingMs, useDrag);
+        active = new ExternalController(context, botWhite, automatic, positionFen, whiteAtBottom, thinkingMs, useDrag, false);
         if (OverlayAccessibility.active != null) OverlayAccessibility.active.attach();
+    }
+
+    /**
+     * Offline manual-FEN guidance works even if MediaProjection is unavailable.
+     * User must keep FEN current and align the board; only guidance, never auto-touch.
+     */
+    public static void beginManualHints(Context context, boolean botWhite, String fen,
+                                        boolean whiteAtBottom, int thinkMs) {
+        if(active!=null) active.stop();
+        active=new ExternalController(context,botWhite,false,fen,whiteAtBottom,thinkMs,false,true);
+        if(OverlayAccessibility.active!=null) OverlayAccessibility.active.attach();
+        notifyStatus("إرشاد يدوي من FEN: افتح لعبة كمبيوتر ثم اضغط «معايرة» من الشريط العائم");
     }
 
     public static void notifyStatus(String message) {
@@ -90,7 +105,13 @@ public final class ExternalController {
         touchBounds = new RectF(rectangle.left, rectangle.top, rectangle.left + d, rectangle.top + d);
         captureBounds = null;
         resetPosition();
-        notifyStatus("تم تحديد رقعة اللمس. نتحقق من الإحداثيات الملتقطة...");
+        if(manualFenHints) {
+            if(touchBounds!=null) {
+                positionVerified=true; // FEN was explicitly supplied, not visually verified.
+                notifyStatus("معايرة جاهزة. حساب إرشاد FEN اليدوي — لا يوجد لمس تلقائي");
+                maybeThink();
+            }
+        } else notifyStatus("تم تحديد رقعة اللمس. نتحقق من الإحداثيات الملتقطة...");
     }
 
     public synchronized RectF getBounds() {
@@ -119,9 +140,11 @@ public final class ExternalController {
         candidateRepeats = 0;
         lastAutoAction = 0;
         if (OverlayAccessibility.active != null) OverlayAccessibility.active.showMove(null, null, touchBounds, whiteBottom);
-        notifyStatus(requestedFen.isEmpty()
-            ? "إذا المباراة بدأت، ارجع وابدأ مباراة جديدة. لا نقدم نقلة قبل فحص البداية"
-            : "جار فحص مطابقة القطع مع وضعية FEN المدخلة");
+        notifyStatus(manualFenHints
+            ? "وضع إرشاد FEN اليدوي: عاير الرقعة لعرض أفضل نقلة. الصورة غير متحقّق منها"
+            : requestedFen.isEmpty()
+                ? "إذا المباراة بدأت، ارجع وابدأ مباراة جديدة. لا نقدم نقلة قبل فحص البداية"
+                : "جار فحص مطابقة القطع مع وضعية FEN المدخلة");
     }
 
     /** Full-display capture and touch coordinates have distinct rectangles. */
@@ -154,6 +177,7 @@ public final class ExternalController {
                 OverlayAccessibility.active.showMove(null,null,touchBounds,whiteBottom);
         }
         notifyStatus(value ? "⏸ أوقفت المساعد مؤقتاً" : "▶ استئناف المساعد؛ التحقق من الرقعة");
+        if(!value && manualFenHints && positionVerified) maybeThink();
     }
 
     public synchronized boolean isPaused() {return paused;}
@@ -191,7 +215,7 @@ public final class ExternalController {
 
     public synchronized void onFrame(Bitmap image) {
         try {
-            if (stopped || paused || touchBounds == null) return;
+            if (manualFenHints || stopped || paused || touchBounds == null) return;
             if (!updateCaptureCoordinates(image)) return;
             // Never offer moves or execute gestures from a guessed or stale board.
             // Validate visible occupancy, including orientation, against the exact FEN.
@@ -326,7 +350,7 @@ public final class ExternalController {
                 move.getTo().toString().toLowerCase(), touchBounds, whiteBottom);
         }
         if (!automatic || uci.length()>4) {
-            notifyStatus("الإرشاد: الأسود = القطعة، الأخضر = المكان: " + uci);
+            notifyStatus((manualFenHints ? "إرشاد FEN غير متحقق بصرياً: " : "الإرشاد: الأسود = القطعة، الأخضر = المكان: ") + uci);
         } else {
             notifyStatus("تنفيذ تلقائي: " + uci);
             lastAutoAction = System.currentTimeMillis();
