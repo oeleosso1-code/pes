@@ -3,11 +3,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
     <application
-        android:label="Chess AI Safe Sync"
+        android:label="Chess AI Auto Player 3"
         android:allowBackup="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true"
-            android:screenOrientation="portrait">
+            android:screenOrientation="portrait" android:resizeableActivity="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
