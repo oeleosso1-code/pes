@@ -140,7 +140,7 @@ public final class MainActivity extends Activity {
         externalPanel.addView(text("▣ مشاركة الشاشة مع تطبيق شطرنج خارجي",17,true));
         externalPanel.addView(text("اللعب ضد الكمبيوتر فقط · المعايرة مطلوبة · الإيقاف تلقائي عند فقد التزامن",13,false));
         addExternalControls(externalPanel);
-        root.addView(text("نسخة v3 تجريبية — نجاح البناء لا يثبت التوافق مع جميع ألعاب الشطرنج",12,false));
+        root.addView(text("الإصدار 3.1: اختبار مستقل للصلاحيات والتأشير واللمس، والتزامن الآمن قبل النقلات. يتطلب اختبار الهاتف.",12,false));
     }
 
     private void reset(String fen) {
@@ -232,6 +232,8 @@ public final class MainActivity extends Activity {
     private int thinkMsExternal = 350;
     private android.widget.CheckBox offlineOnly;
     private TextView externalStatus;
+    private TextView permissionDiagnostic;
+    private Button touchTestTarget;
     private EditText externalFen;
 
     private void addExternalControls(LinearLayout root) {
@@ -288,6 +290,60 @@ public final class MainActivity extends Activity {
         enable.setOnClickListener(v -> {
             startActivity(new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
         });
+        permissionDiagnostic=text("حالة الخدمة: يتم التحقق...",13,true);
+        root.addView(permissionDiagnostic);
+        Button check=new Button(this);
+        check.setAllCaps(false);check.setText("فحص خدمة إمكانية الوصول");
+        root.addView(check);
+        check.setOnClickListener(v -> refreshPermissionDiagnostics());
+
+        Button restricted=new Button(this);
+        restricted.setAllCaps(false);restricted.setText("إعدادات التطبيق — الأذونات المقيدة");
+        root.addView(restricted);
+        restricted.setOnClickListener(v -> {
+            android.content.Intent details=new android.content.Intent(
+                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:"+getPackageName()));
+            startActivity(details);
+        });
+        root.addView(text("إذا رفض Android تفعيل خدمة الوصول لتطبيق APK، افتح إعدادات التطبيق ثم القائمة ⋮ وتحقق من خيار السماح بالإعدادات المقيدة إن كان موجوداً. فعّله فقط إن كنت تثق بهذا التطبيق.",12,false));
+        Button testMarkers=new Button(this);
+        testMarkers.setAllCaps(false);testMarkers.setText("اختبار التأشير الأسود والأخضر (دون مشاركة)");
+        root.addView(testMarkers);
+        testMarkers.setOnClickListener(v -> {
+            OverlayAccessibility service=OverlayAccessibility.active;
+            if(service==null){
+                externalStatus.setText("خدمة إمكانية الوصول غير متصلة. فعّلها من إعدادات Android أولاً");
+                refreshPermissionDiagnostics();
+                return;
+            }
+            service.attach();
+            service.showDemoMarkers();
+            externalStatus.setText("اختبار: يجب ظهور شريط عائم وإطار أسود وأخضر فوق الشاشة؛ لا علاقة له بتحليل القطع");
+        });
+        root.addView(text("اختبار اللمس داخل هذا التطبيق فقط؛ لا يضغط على أي لعبة خارجية.",12,false));
+        touchTestTarget=new Button(this);
+        touchTestTarget.setAllCaps(false);
+        touchTestTarget.setText("منطقة اللمس التجريبية — لم أُلمس بعد");
+        root.addView(touchTestTarget);
+        touchTestTarget.setOnClickListener(v ->
+            touchTestTarget.setText("✓ استقبل التطبيق اللمسة الفعلية"));
+        Button testTouch=new Button(this);
+        testTouch.setText("نفّذ لمسة اختبار على المنطقة أعلاه");
+        testTouch.setAllCaps(false);
+        root.addView(testTouch);
+        testTouch.setOnClickListener(v -> {
+            OverlayAccessibility service=OverlayAccessibility.active;
+            if(service==null){
+                externalStatus.setText("لا يمكن اختبار اللمس: خدمة إمكانية الوصول غير متصلة");
+                return;
+            }
+            int[] xy=new int[2];
+            touchTestTarget.getLocationOnScreen(xy);
+            service.testTouch(xy[0]+touchTestTarget.getWidth()/2f,
+                xy[1]+touchTestTarget.getHeight()/2f);
+            externalStatus.setText("تم إرسال أمر لمس تجريبي إلى Android؛ راقب تغير نص منطقة الاختبار");
+        });
         Button share = new Button(this);
         share.setText("2 — مشاركة الشاشة وتشغيل المساعد الخارجي");
         share.setAllCaps(false);
@@ -315,7 +371,7 @@ public final class MainActivity extends Activity {
                 externalStatus.setText("تعذر طلب المشاركة: " + e.getMessage());
             }
         });
-        externalStatus = text("بعد بدء المشاركة افتح اللعبة واضغط «تحديد الرقعة» من الشريط العائم.", 13, false);
+        externalStatus = text("ابدأ بفحص خدمة الوصول، ثم اختبار التأشير واللمس، ثم مشاركة الشاشة",13,false);
         root.addView(externalStatus);
         Button end = new Button(this);
         end.setAllCaps(false);
@@ -344,16 +400,39 @@ public final class MainActivity extends Activity {
         capture.putExtra(ExternalCaptureService.EXTRA_DATA, data);
         try {
             startForegroundService(capture);
-            if (externalStatus != null) externalStatus.setText("المشاركة بدأت: افتح لعبة كمبيوتر جديدة ثم عاير الرقعة.");
-            ui.postDelayed(() -> {
-                android.content.Intent home = new android.content.Intent(android.content.Intent.ACTION_MAIN);
-                home.addCategory(android.content.Intent.CATEGORY_HOME);
-                home.setFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(home);
-            }, 700);
+            if (externalStatus != null) externalStatus.setText("أرسلنا طلب بدء المشاركة. تأكد من ظهور الشريط العائم ثم افتح لعبة الكمبيوتر بنفسك وعاير الرقعة.");
         } catch (Exception e) {
             if (externalStatus != null) externalStatus.setText("فشل بدء المشاركة: " + e.getMessage());
         }
+    }
+
+    @Override protected void onResume(){
+        super.onResume();
+        if(permissionDiagnostic!=null)refreshPermissionDiagnostics();
+    }
+
+    private void refreshPermissionDiagnostics(){
+        if(permissionDiagnostic==null)return;
+        android.view.accessibility.AccessibilityManager am=
+            (android.view.accessibility.AccessibilityManager)getSystemService(ACCESSIBILITY_SERVICE);
+        boolean enabled=false;
+        if(am!=null)for(android.accessibilityservice.AccessibilityServiceInfo info:
+            am.getEnabledAccessibilityServiceList(
+                android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)){
+            if(info.getResolveInfo()!=null
+                && getPackageName().equals(info.getResolveInfo().serviceInfo.packageName)
+                && "io.sajad.chessauto.OverlayAccessibility".equals(
+                    info.getResolveInfo().serviceInfo.name)){
+                enabled=true;break;
+            }
+        }
+        boolean connected=OverlayAccessibility.active!=null;
+        String hint=connected?"✓ خدمة اللمس متصلة ويمكن اختبارها"
+            :enabled?"إمكانية الوصول مفعلة بالنظام لكن الخدمة لم تتصل. أوقفها وأعد تفعيلها"
+                :"خدمة اللمس غير مفعلة؛ افتح إمكانية الوصول وفعّل Chess AI 3";
+        permissionDiagnostic.setText(hint);
+        if(externalStatus!=null && connected)
+            externalStatus.setText("تشخيص الخدمة: "+OverlayAccessibility.lastDiagnostic(this));
     }
 
     @Override protected void onDestroy() {
