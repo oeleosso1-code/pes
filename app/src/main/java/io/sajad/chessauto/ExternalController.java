@@ -36,18 +36,24 @@ public final class ExternalController {
     private String lastCandidate;
     private int candidateRepeats;
     private long lastAutoAction;
+    private final String requestedFen;
+    private boolean positionVerified = false;
+    private int framesSinceCheck;
+    private long lastWarningTime;
+    private boolean awaitingAcknowledgement;
 
-    private ExternalController(Context c, boolean white, boolean auto) {
+    private ExternalController(Context c, boolean white, boolean auto, String positionFen) {
         context = c.getApplicationContext();
         engine = new StockfishEngine(context);
         botWhite = white;
         automatic = auto;
         whiteBottom = white;
+        requestedFen = positionFen == null ? "" : positionFen.trim();
     }
 
-    public static void begin(Context context, boolean botWhite, boolean automatic) {
+    public static void begin(Context context, boolean botWhite, boolean automatic, String positionFen) {
         if (active != null) active.stop();
-        active = new ExternalController(context, botWhite, automatic);
+        active = new ExternalController(context, botWhite, automatic, positionFen);
         if (OverlayAccessibility.active != null) OverlayAccessibility.active.attach();
     }
 
@@ -61,9 +67,14 @@ public final class ExternalController {
             return;
         }
         float d = Math.min(rectangle.width(), rectangle.height());
+        if (rectangle.width() / rectangle.height() > 1.14f ||
+            rectangle.height() / rectangle.width() > 1.14f) {
+            notifyStatus("حدد الزاويتين المتقابلتين للرقعة كاملة وبشكل مربع");
+            return;
+        }
         bounds = new RectF(rectangle.left, rectangle.top, rectangle.left + d, rectangle.top + d);
         resetPosition();
-        notifyStatus("الرقعة محددة. تأكد أنها ببداية المباراة، ثم ابدأ ضد الكمبيوتر.");
+        notifyStatus("تم تحديد حدود الرقعة. جاري التحقق من أماكن القطع...");
     }
 
     public synchronized RectF getBounds() {
@@ -74,14 +85,28 @@ public final class ExternalController {
 
     public synchronized void resetPosition() {
         board = new Board();
+        if (!requestedFen.isEmpty()) {
+            try {
+                board.loadFromFen(requestedFen);
+            } catch (Exception e) {
+                notifyStatus("صيغة FEN غير صحيحة. أعد بدء الجلسة بوضعية صحيحة");
+                bounds = null;
+                return;
+            }
+        }
+        positionVerified = false;
+        framesSinceCheck = 0;
         reference = null;
         proposed = null;
         thinking = false;
         lastCandidate = null;
         candidateRepeats = 0;
         lastAutoAction = 0;
+        awaitingAcknowledgement = false;
         if (OverlayAccessibility.active != null) OverlayAccessibility.active.showMove(null, null, bounds, whiteBottom);
-        notifyStatus("أعد المباراة للوضع الابتدائي ثم اختر العب ضد الكمبيوتر");
+        notifyStatus(requestedFen.isEmpty()
+            ? "إذا المباراة بدأت، ارجع وابدأ مباراة جديدة. لا نقدم نقلة قبل فحص البداية"
+            : "جار فحص مطابقة القطع مع وضعية FEN المدخلة");
     }
 
     public synchronized void onFrame(Bitmap image) {
@@ -90,6 +115,27 @@ public final class ExternalController {
             if (image.getWidth() < bounds.right || image.getHeight() < bounds.bottom) {
                 notifyStatus("حجم الشاشة تغير. أعد تحديد الرقعة");
                 bounds = null;
+                return;
+            }
+            // Never offer moves or execute gestures from a guessed or stale board.
+            // Validate visible occupancy, including orientation, against the exact FEN.
+            if (!positionVerified) {
+                if (++framesSinceCheck < 3) return;
+                framesSinceCheck = 0;
+                if (!verifyBoardOccupancy(image, bounds, board.getFen())) {
+                    long now = android.os.SystemClock.elapsedRealtime();
+                    if (now - lastWarningTime > 2000) {
+                        notifyStatus(requestedFen.isEmpty()
+                            ? "الرقعة ليست بوضع البداية: افتح مباراة جديدة واضغط «إعادة» ثم «تحديد الرقعة»"
+                            : "قطع الشاشة لا تطابق FEN. صحح الوضعية أو الاتجاه ثم عاير مجدداً");
+                        lastWarningTime = now;
+                    }
+                    return;
+                }
+                positionVerified = true;
+                reference = sample(image, bounds);
+                notifyStatus("✓ تم التحقق من ترتيب القطع. جاهز لمتابعة المباراة");
+                maybeThink();
                 return;
             }
             float[] current = sample(image, bounds);
@@ -113,7 +159,7 @@ public final class ExternalController {
             if (count > 9) {
                 lastCandidate = null;
                 candidateRepeats = 0;
-                notifyStatus("تغيرت مساحة كبيرة. ثبّت الرقعة ولا تحركها.");
+                notifyStatus("تعذر متابعة تغيّر القطع؛ توقف التأشير. أعد ضبط المباراة والرقعة");
                 return;
             }
             Move move = detect(board.legalMoves(), changes);
@@ -150,7 +196,7 @@ public final class ExternalController {
     }
 
     private void maybeThink() {
-        if (thinking || proposed != null || stopped || bounds == null) return;
+        if (thinking || proposed != null || stopped || bounds == null || !positionVerified) return;
         if ((board.getSideToMove() == Side.WHITE) != botWhite) {
             notifyStatus("الكمبيوتر يلعب؛ نراقب نقلته...");
             return;
@@ -174,7 +220,8 @@ public final class ExternalController {
 
     private synchronized void proposeMove(String uci, String originalFen) {
         thinking = false;
-        if (stopped || bounds == null || !board.getFen().equals(originalFen)) return;
+        if (stopped || bounds == null || !positionVerified ||
+            !board.getFen().equals(originalFen)) return;
         Move move = new Move(uci, board.getSideToMove());
         if (!board.isMoveLegal(move, true)) {
             notifyStatus("خطأ: نقلة غير قانونية من المحرك");
@@ -208,6 +255,89 @@ public final class ExternalController {
         new Thread(() -> engine.close()).start();
         if (OverlayAccessibility.active != null) OverlayAccessibility.active.detach();
         if (active == this) active = null;
+    }
+
+
+    /**
+     * Guard against the exact failure reported on Chess.com: calibrating halfway
+     * through a match used to tell Stockfish it was the initial position. This
+     * basic foreground vision check verifies occupied/empty squares only; it is
+     * NOT universal chess piece recognition. Uncertainty means stop, not tap.
+     */
+    private boolean verifyBoardOccupancy(Bitmap image, RectF square, String fen) {
+        String[] ranks = fen.split(" ")[0].split("/");
+        if (ranks.length != 8) return false;
+        boolean[][] expected = new boolean[8][8];
+        for (int r = 0; r < 8; r++) {
+            int f = 0;
+            for (int i = 0; i < ranks[r].length(); i++) {
+                char ch = ranks[r].charAt(i);
+                if (ch >= '1' && ch <= '8') {
+                    f += ch - '0';
+                } else if (f < 8) {
+                    expected[r][f++] = true;
+                }
+            }
+            if (f != 8) return false;
+        }
+        int correct = 0, populated = 0, emptyCorrect = 0;
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                int r = whiteBottom ? row : 7 - row;
+                int c = whiteBottom ? col : 7 - col;
+                boolean hasPiece = measureOccupancy(image, square, row, col) > 0.125f;
+                if (hasPiece == expected[r][c]) {
+                    correct++;
+                    if (!hasPiece) emptyCorrect++;
+                    else populated++;
+                }
+            }
+        }
+        // All but a few squares must agree; otherwise it could be a mid-game
+        // board, selected UI animation, modified variant, or incorrect calibration.
+        int expectedPop = 0, expectedEmpty = 0;
+        for (int r=0;r<8;r++) for (int c=0;c<8;c++)
+            if (expected[r][c]) expectedPop++; else expectedEmpty++;
+        return correct >= 59 &&
+            populated >= expectedPop - 2 && emptyCorrect >= expectedEmpty - 2;
+    }
+
+    private float measureOccupancy(Bitmap image, RectF boardRect, int row, int col) {
+        float d = boardRect.width()/8f;
+        float left = boardRect.left + col*d;
+        float top  = boardRect.top + row*d;
+        int[] sample = new int[4];
+        sample[0] = rgb(image,left+.10f*d,top+.10f*d);
+        sample[1] = rgb(image,left+.90f*d,top+.10f*d);
+        sample[2] = rgb(image,left+.10f*d,top+.90f*d);
+        sample[3] = rgb(image,left+.90f*d,top+.90f*d);
+        // Estimate tile background separately per square to avoid false positives
+        // on Chess.com's yellow move highlights.
+        int[] bg = new int[3];
+        for (int component=0;component<3;component++) {
+            int[] values=new int[4];
+            for (int j=0;j<4;j++) values[j]=(sample[j]>>(16-8*component))&255;
+            java.util.Arrays.sort(values);
+            bg[component]=(values[1]+values[2])/2;
+        }
+        int different = 0, points = 0;
+        // Focus on square interior: overlays outline near the border.
+        for (int py=0;py<9;py++) for (int px=0;px<9;px++) {
+            float fx = left + (.25f + .50f*px/8f)*d;
+            float fy = top + (.25f + .50f*py/8f)*d;
+            int rgb=rgb(image,fx,fy);
+            int distance=0;
+            for (int component=0;component<3;component++)
+                distance=Math.max(distance,Math.abs(((rgb>>(16-8*component))&255)-bg[component]));
+            if (distance>55) different++;
+            points++;
+        }
+        return (float)different/points;
+    }
+
+    private static int rgb(Bitmap image,float x,float y) {
+        return image.getPixel(Math.min(image.getWidth()-1,Math.max(0,(int)x)),
+            Math.min(image.getHeight()-1,Math.max(0,(int)y)));
     }
 
     private static float[] sample(Bitmap image, RectF r) {

@@ -24,3 +24,24 @@ GPL-3.0-or-later. Official Stockfish 19 compiled from source in CI, GPL source h
 
 ## Install separately from v1
 Package ID: `io.sajad.chessauto.external`. It installs alongside v1 to avoid conflicts with runner-generated debug signing keys. The original working app is preserved.
+
+
+## v2.1 Chess.com desynchronization fix
+
+The earlier v2 wrongly assumed that any captured board was the normal start. If a game
+was already in progress it could draw move indicators on the WRONG squares.
+**v2.1 now blocks all outside chess suggestions and automatic gestures until visible
+square occupancy is consistent with the engine position (at least 59 of 64 squares).**
+The check uses foreground frame pixels and is *not a full visual chess position reader*.
+
+**Usage:** To use an existing game, paste the game's exact FEN into the optional
+external FEN field before approving screen sharing. Otherwise start a NEW match
+from initial placement. Then calibrate the whole board accurately, top-left and
+bottom-right. Black at bottom requires selecting bot color black. If the view
+is mid-game without FEN, the app refuses to move rather than hallucinating a move.
+Color fills the ENTIRE board square (dark = source, green = destination).
+
+**Known limitations:** FEN sync still requires manual input for non-starting games.
+This algorithm cannot distinguish bishop from knight or side from occupancy alone,
+so unusual visually valid but wrong positions remain possible. No on-device
+integration test against Chess.com has been performed.

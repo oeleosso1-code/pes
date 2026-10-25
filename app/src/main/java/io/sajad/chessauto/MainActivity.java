@@ -124,7 +124,7 @@ public final class MainActivity extends Activity {
             String fen = fenInput.getText().toString().trim();
             if (!fen.isEmpty()) reset(fen);
         });
-        root.addView(text("هذا الإصدار يتحكم برقعة الشطرنج الموجودة داخل التطبيق نفسه. لا يدّعي قراءة أو التحكم بأي تطبيق شطرنج خارجي.", 12, false));
+        root.addView(text("المساعد الخارجي تجريبي: لا يبدأ التحليل حتى يتحقق من تطابق ترتيب القطع. لتغيير وضعية FEN أعد تشغيل جلسة المشاركة.", 12, false));
     }
 
     private void reset(String fen) {
@@ -213,6 +213,7 @@ public final class MainActivity extends Activity {
     private boolean externalWhite = true;
     private android.widget.CheckBox offlineOnly;
     private TextView externalStatus;
+    private EditText externalFen;
 
     private void addExternalControls(LinearLayout root) {
         root.addView(text("♟ التحكم بألعاب الشطرنج الخارجية (ضد الكمبيوتر فقط)", 19, true));
@@ -233,6 +234,12 @@ public final class MainActivity extends Activity {
         offlineOnly.setText("أؤكد أن المباراة ضد كمبيوتر فقط، وليست ضد لاعب بشري أو عبر الإنترنت");
         offlineOnly.setTextSize(13);
         root.addView(offlineOnly);
+        externalFen = new EditText(this);
+        externalFen.setSingleLine(false);
+        externalFen.setTextSize(13);
+        externalFen.setMinLines(2);
+        externalFen.setHint("اختياري: ألصق FEN إذا المباراة بدأت بالفعل. اتركه فارغاً فقط للمباراة الجديدة");
+        root.addView(externalFen, new LinearLayout.LayoutParams(-1, dp(77)));
         Button enable = new Button(this);
         enable.setText("1 — تفعيل خدمة اللمس والتأشير");
         enable.setAllCaps(false);
@@ -284,7 +291,8 @@ public final class MainActivity extends Activity {
             return;
         }
         running = false; generation++; render();
-        ExternalController.begin(this, externalWhite, externalAuto);
+        ExternalController.begin(this, externalWhite, externalAuto,
+            externalFen == null ? "" : externalFen.getText().toString());
         android.content.Intent capture = new android.content.Intent(this, ExternalCaptureService.class);
         capture.putExtra(ExternalCaptureService.EXTRA_RESULT, resultCode);
         capture.putExtra(ExternalCaptureService.EXTRA_DATA, data);
