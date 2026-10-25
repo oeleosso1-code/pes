@@ -32,6 +32,7 @@ public final class MainActivity extends Activity {
     private Button colorButton;
     private Button levelButton;
     private EditText fenInput;
+    private LinearLayout internalPanel,externalPanel;
     private boolean running = false;
     private int generation = 0;
     private int plies = 0;
@@ -53,7 +54,7 @@ public final class MainActivity extends Activity {
         TextView t = new TextView(this);
         t.setText(content);
         t.setTextSize(size);
-        t.setTextColor(Color.rgb(31, 41, 55));
+        t.setTextColor(Color.rgb(225,237,240));
         if (heading) t.setTypeface(null, 1);
         t.setGravity(Gravity.CENTER);
         t.setPadding(dp(6), dp(7), dp(6), dp(7));
@@ -64,67 +65,82 @@ public final class MainActivity extends Activity {
         Button b = new Button(this);
         b.setText(label);
         b.setAllCaps(false);
-        parent.addView(b, new LinearLayout.LayoutParams(0, dp(57), 1f));
+        b.setAllCaps(false);
+        b.setTextColor(Color.WHITE);
+        b.setBackground(cardBackground(0xff152e38,0xff08202a,11,0xff226259));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(54),1f);
+        lp.setMargins(dp(3),dp(3),dp(3),dp(3));
+        parent.addView(b,lp);
         return b;
     }
 
+    private android.graphics.drawable.GradientDrawable cardBackground(int c1,int c2,int radius,int edge) {
+        android.graphics.drawable.GradientDrawable d=new android.graphics.drawable.GradientDrawable(
+            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,new int[]{c1,c2});
+        d.setCornerRadius(dp(radius));d.setStroke(dp(1),edge);return d;
+    }
+    private LinearLayout section(LinearLayout root){
+        LinearLayout p=new LinearLayout(this);
+        p.setOrientation(LinearLayout.VERTICAL);
+        p.setPadding(dp(8),dp(12),dp(8),dp(12));
+        p.setBackground(cardBackground(0xff092333,0xff031423,15,0xff234c47));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
+        lp.setMargins(0,dp(9),0,dp(9));
+        root.addView(p,lp);return p;
+    }
     private void buildUi() {
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout root = new LinearLayout(this);
+        ScrollView scroll=new ScrollView(this);
+        LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(10), dp(10), dp(10), dp(22));
-        root.setBackgroundColor(Color.rgb(252, 249, 242));
+        root.setPadding(dp(12),dp(15),dp(12),dp(25));
+        root.setBackground(cardBackground(0xff081823,0xff010912,0,0xff081823));
         scroll.addView(root);
         setContentView(scroll);
-
-        root.addView(text("♟ Chess AI Auto Player", 23, true));
-        root.addView(text("البوت يلعب تلقائياً بدلاً منك ضد خصم كمبيوتر داخل هذا التطبيق — دون إنترنت", 14, false));
-
-        status = text("", 16, true);
-        root.addView(status);
-        boardView = new ChessBoardView(this);
-        int screenWidth = getResources().getDisplayMetrics().widthPixels;
-        root.addView(boardView, new LinearLayout.LayoutParams(-1, screenWidth - dp(20)));
-        lastMove = text("", 14, false);
-        root.addView(lastMove);
-
-        LinearLayout line1 = new LinearLayout(this);
-        root.addView(line1);
-        start = button("▶ ابدأ اللعب", line1);
-        Button reset = button("↻ مباراة جديدة", line1);
-        start.setOnClickListener(v -> {
-            running = !running;
-            generation++;
-            render();
-            if (running) scheduleMove(generation);
-        });
-        reset.setOnClickListener(v -> reset(null));
-
-        LinearLayout line2 = new LinearLayout(this);
-        root.addView(line2);
-        colorButton = button("البوت: الأبيض", line2);
-        levelButton = button("الخصم: سهل", line2);
-        colorButton.setOnClickListener(v -> { botWhite = !botWhite; reset(null); });
-        levelButton.setOnClickListener(v -> { levelIndex = (levelIndex + 1) % levels.length; reset(null); });
-
-        addExternalControls(root);
-
-        root.addView(text("وضعية مخصصة (FEN) — اختيارية", 14, true));
-        fenInput = new EditText(this);
-        fenInput.setHint("الصق FEN إذا أردت بدء مباراة من وضعية محددة");
+        TextView knight=text("♞",66,true);
+        knight.setTextColor(0xffe4bc69);
+        root.addView(knight,new LinearLayout.LayoutParams(-1,dp(103)));
+        TextView heading=text("Chess AI Auto Player 3.0",23,true);
+        heading.setTextColor(0xffe6cb83);root.addView(heading);
+        root.addView(text("بوت شطرنج قوي ضد الكمبيوتر فقط · Stockfish 19",13,false));
+        LinearLayout modes=new LinearLayout(this);root.addView(modes);
+        Button inside=button("♟ الشطرنج الداخلي",modes);
+        Button outside=button("▣ مشاركة الشاشة",modes);
+        internalPanel=section(root);
+        externalPanel=section(root);
+        externalPanel.setVisibility(View.GONE);
+        inside.setOnClickListener(v->{internalPanel.setVisibility(View.VISIBLE);externalPanel.setVisibility(View.GONE);});
+        outside.setOnClickListener(v->{internalPanel.setVisibility(View.GONE);externalPanel.setVisibility(View.VISIBLE);});
+        internalPanel.addView(text("شطرنج تلقائي · ضد الكمبيوتر",16,true));
+        status=text("",16,true);internalPanel.addView(status);
+        boardView=new ChessBoardView(this);
+        int width=getResources().getDisplayMetrics().widthPixels-dp(44);
+        internalPanel.addView(boardView,new LinearLayout.LayoutParams(-1,width));
+        lastMove=text("",14,false);internalPanel.addView(lastMove);
+        LinearLayout actions=new LinearLayout(this);internalPanel.addView(actions);
+        start=button("▶ ابدأ اللعب",actions);
+        Button restart=button("↻ مباراة جديدة",actions);
+        start.setOnClickListener(v->{running=!running;generation++;render();if(running)scheduleMove(generation);});
+        restart.setOnClickListener(v->reset(null));
+        LinearLayout options=new LinearLayout(this);internalPanel.addView(options);
+        colorButton=button("البوت: الأبيض",options);
+        levelButton=button("الخصم: سهل",options);
+        colorButton.setOnClickListener(v->{botWhite=!botWhite;reset(null);});
+        levelButton.setOnClickListener(v->{levelIndex=(levelIndex+1)%levels.length;reset(null);});
+        internalPanel.addView(text("وضعية FEN اختيارية",14,true));
+        fenInput=new EditText(this);
+        fenInput.setHint("FEN للمباراة الداخلية");
+        fenInput.setHintTextColor(0xff9cabb2);
+        fenInput.setTextColor(Color.WHITE);
         fenInput.setTextSize(13);
-        fenInput.setSingleLine(false);
-        fenInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        root.addView(fenInput, new LinearLayout.LayoutParams(-1, dp(76)));
-        Button load = new Button(this);
-        load.setText("تحميل الوضعية");
-        load.setAllCaps(false);
-        root.addView(load);
-        load.setOnClickListener(v -> {
-            String fen = fenInput.getText().toString().trim();
-            if (!fen.isEmpty()) reset(fen);
-        });
-        root.addView(text("المساعد الخارجي تجريبي: لا يبدأ التحليل حتى يتحقق من تطابق ترتيب القطع. لتغيير وضعية FEN أعد تشغيل جلسة المشاركة.", 12, false));
+        internalPanel.addView(fenInput,new LinearLayout.LayoutParams(-1,dp(62)));
+        Button load=new Button(this);load.setText("تحميل وضعية FEN");
+        load.setTextColor(Color.WHITE);load.setBackground(cardBackground(0xff1b695b,0xff105043,12,0xff21ac80));
+        internalPanel.addView(load,new LinearLayout.LayoutParams(-1,dp(55)));
+        load.setOnClickListener(v->{String fen=fenInput.getText().toString().trim();if(!fen.isEmpty())reset(fen);});
+        externalPanel.addView(text("▣ مشاركة الشاشة مع تطبيق شطرنج خارجي",17,true));
+        externalPanel.addView(text("اللعب ضد الكمبيوتر فقط · المعايرة مطلوبة · الإيقاف تلقائي عند فقد التزامن",13,false));
+        addExternalControls(externalPanel);
+        root.addView(text("نسخة v3 تجريبية — نجاح البناء لا يثبت التوافق مع جميع ألعاب الشطرنج",12,false));
     }
 
     private void reset(String fen) {
@@ -211,6 +227,9 @@ public final class MainActivity extends Activity {
     // screen capture. These modes are intended for offline computer games only.
     private boolean externalAuto = true;
     private boolean externalWhite = true;
+    private boolean whiteAtBottomExternal = true;
+    private boolean useDragExternal;
+    private int thinkMsExternal = 350;
     private android.widget.CheckBox offlineOnly;
     private TextView externalStatus;
     private EditText externalFen;
@@ -230,7 +249,27 @@ public final class MainActivity extends Activity {
             externalWhite = !externalWhite;
             color.setText(externalWhite ? "اللون: الأبيض" : "اللون: الأسود");
         });
+        LinearLayout settings=new LinearLayout(this);root.addView(settings);
+        Button orientation=button("أسفل الرقعة: الأبيض",settings);
+        Button drag=button("الحركة: نقر",settings);
+        orientation.setOnClickListener(v->{
+            whiteAtBottomExternal=!whiteAtBottomExternal;
+            orientation.setText(whiteAtBottomExternal?"أسفل الرقعة: الأبيض":"أسفل الرقعة: الأسود");
+        });
+        drag.setOnClickListener(v->{
+            useDragExternal=!useDragExternal;
+            drag.setText(useDragExternal?"الحركة: سحب":"الحركة: نقر");
+        });
+        LinearLayout speed=new LinearLayout(this);root.addView(speed);
+        Button think=button("زمن التفكير: 350ms",speed);
+        think.setOnClickListener(v->{
+            int[] times={180,350,750,1250};int j=0;
+            while(j<times.length && times[j]!=thinkMsExternal)j++;
+            thinkMsExternal=times[(j+1)%times.length];
+            think.setText("زمن التفكير: "+thinkMsExternal+"ms");
+        });
         offlineOnly = new android.widget.CheckBox(this);
+        offlineOnly.setTextColor(Color.WHITE);
         offlineOnly.setText("أؤكد أن المباراة ضد كمبيوتر فقط، وليست ضد لاعب بشري أو عبر الإنترنت");
         offlineOnly.setTextSize(13);
         root.addView(offlineOnly);
@@ -238,6 +277,8 @@ public final class MainActivity extends Activity {
         externalFen.setSingleLine(false);
         externalFen.setTextSize(13);
         externalFen.setMinLines(2);
+        externalFen.setTextColor(Color.WHITE);
+        externalFen.setHintTextColor(Color.GRAY);
         externalFen.setHint("اختياري: ألصق FEN إذا المباراة بدأت بالفعل. اتركه فارغاً فقط للمباراة الجديدة");
         root.addView(externalFen, new LinearLayout.LayoutParams(-1, dp(77)));
         Button enable = new Button(this);
@@ -265,7 +306,11 @@ public final class MainActivity extends Activity {
                 android.media.projection.MediaProjectionManager manager =
                     (android.media.projection.MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
                 externalStatus.setText("وافق على مشاركة الشاشة بالكامل، ثم افتح لعبة الشطرنج.");
-                startActivityForResult(manager.createScreenCaptureIntent(), 991);
+                android.content.Intent consent;
+                if(android.os.Build.VERSION.SDK_INT>=34) {
+                    consent=manager.createScreenCaptureIntent(android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay());
+                } else consent=manager.createScreenCaptureIntent();
+                startActivityForResult(consent,991);
             } catch (Exception e) {
                 externalStatus.setText("تعذر طلب المشاركة: " + e.getMessage());
             }
@@ -292,7 +337,8 @@ public final class MainActivity extends Activity {
         }
         running = false; generation++; render();
         ExternalController.begin(this, externalWhite, externalAuto,
-            externalFen == null ? "" : externalFen.getText().toString());
+            externalFen == null ? "" : externalFen.getText().toString(),
+            whiteAtBottomExternal,thinkMsExternal,useDragExternal);
         android.content.Intent capture = new android.content.Intent(this, ExternalCaptureService.class);
         capture.putExtra(ExternalCaptureService.EXTRA_RESULT, resultCode);
         capture.putExtra(ExternalCaptureService.EXTRA_DATA, data);
