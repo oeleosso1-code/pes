@@ -365,6 +365,18 @@ public final class MainActivity extends Activity {
         });
         externalStatus = text("ابدأ باختبار التأشير واللمس حتى تتأكد من إذن إمكانية الوصول، ثم شغّل مشاركة الشاشة.", 13, false);
         root.addView(externalStatus);
+        Button captureCheck=new Button(this);
+        captureCheck.setText("ج — قراءة التشخيص الحقيقي لمشاركة الشاشة");
+        captureCheck.setAllCaps(false);
+        root.addView(captureCheck);
+        captureCheck.setOnClickListener(v -> {
+            String state=getSharedPreferences("chess_capture_diagnostics",MODE_PRIVATE)
+                .getString("status","لم تصل أي رسالة من خدمة مشاركة الشاشة حتى الآن");
+            String overlay=(OverlayAccessibility.active==null)
+                ?"إمكانية الوصول: غير متصلة"
+                :OverlayAccessibility.active.overlayDiagnostics();
+            externalStatus.setText("حالة الالتقاط: "+state+"\n"+overlay);
+        });
         Button end = new Button(this);
         end.setAllCaps(false);
         end.setText("إيقاف المساعد الخارجي");
@@ -391,6 +403,8 @@ public final class MainActivity extends Activity {
         capture.putExtra(ExternalCaptureService.EXTRA_RESULT, resultCode);
         capture.putExtra(ExternalCaptureService.EXTRA_DATA, data);
         try {
+            getSharedPreferences("chess_capture_diagnostics",MODE_PRIVATE)
+                .edit().putString("status","جاري تشغيل خدمة الالتقاط...").apply();
             startForegroundService(capture);
             if (externalStatus != null) externalStatus.setText("تم إرسال طلب بدء المشاركة. تحقق من ظهور لوحة الشطرنج العائمة، ثم افتح لعبة الكمبيوتر بنفسك وعاير الرقعة.");
         } catch (Exception e) {
