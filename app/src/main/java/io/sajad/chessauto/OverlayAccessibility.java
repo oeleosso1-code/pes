@@ -26,6 +26,8 @@ public final class OverlayAccessibility extends AccessibilityService {
     private View boardMarkers, calibration;
     private LinearLayout panel;
     private TextView status;
+    private TextView performance;
+    private boolean showGuides = true;
     private final Handler main = new Handler(Looper.getMainLooper());
     private String origin, destination;
     private RectF bounds;
@@ -63,7 +65,7 @@ public final class OverlayAccessibility extends AccessibilityService {
                 final Paint pen = new Paint(Paint.ANTI_ALIAS_FLAG);
                 @Override protected void onDraw(Canvas canvas) {
                     super.onDraw(canvas);
-                    if (bounds == null || origin == null || destination == null) return;
+                    if (!showGuides || bounds == null || origin == null || destination == null) return;
                     paintSquare(canvas, origin, Color.BLACK);
                     paintSquare(canvas, destination, Color.rgb(21, 204, 78));
                 }
@@ -73,17 +75,14 @@ public final class OverlayAccessibility extends AccessibilityService {
                     int row = whiteBottom ? 7-rank : rank;
                     float d = bounds.width()/8f;
                     float x = bounds.left + col*d, y = bounds.top + row*d;
-                    // Entire source and destination squares are visibly marked,
-                    // instead of drawing a box floating inside an empty square.
-                    pen.setStyle(Paint.Style.FILL);
-                    pen.setColor(color == Color.BLACK
-                        ? Color.argb(110,0,0,0)
-                        : Color.argb(105,11,225,66));
-                    canvas.drawRect(x,y,x+d,y+d,pen);
+                    // Thin borders preserve the piece and reduce overlay feedback into capture.
                     pen.setStyle(Paint.Style.STROKE);
-                    pen.setStrokeWidth(Math.max(3,d*.07f));
-                    pen.setColor(color == Color.BLACK ? Color.BLACK : Color.rgb(0,210,45));
+                    pen.setStrokeWidth(Math.max(4,d*.085f));
+                    pen.setColor(color==Color.BLACK ? Color.rgb(13,13,13) : Color.rgb(0,220,56));
                     canvas.drawRect(x+3,y+3,x+d-3,y+d-3,pen);
+                    pen.setStrokeWidth(Math.max(1,d*.018f));
+                    pen.setColor(color==Color.BLACK ? Color.WHITE : Color.BLACK);
+                    canvas.drawRect(x+7,y+7,x+d-7,y+d-7,pen);
                 }
             };
             wm.addView(boardMarkers, params(-1, -1, false));
@@ -96,6 +95,11 @@ public final class OverlayAccessibility extends AccessibilityService {
             status.setTextSize(12);
             status.setText("افتح لعبة شطرنج ضد الكمبيوتر، وابدأ مباراة جديدة");
             panel.addView(status);
+            performance = new TextView(this);
+            performance.setTextColor(Color.rgb(16,220,121));
+            performance.setTextSize(10);
+            performance.setText("مشاركة الشاشة: جاري الإعداد");
+            panel.addView(performance);
             LinearLayout row = new LinearLayout(this);
             panel.addView(row);
             Button calibrate = new Button(this);
@@ -112,6 +116,19 @@ public final class OverlayAccessibility extends AccessibilityService {
             reset.setOnClickListener(v -> {
                 if (ExternalController.active != null) ExternalController.active.resetPosition();
             });
+            Button pause = new Button(this);
+            pause.setText("⏸");
+            pause.setTextSize(12);
+            pause.setAllCaps(false);
+            row.addView(pause,new LinearLayout.LayoutParams(0,dp(42),.7f));
+            pause.setOnClickListener(v -> {
+                ExternalController c=ExternalController.active;
+                if(c!=null) {
+                    boolean next=!c.isPaused();
+                    c.setPaused(next);
+                    pause.setText(next ? "▶" : "⏸");
+                }
+            });
             Button stop = new Button(this);
             stop.setText("إيقاف");
             stop.setTextSize(12);
@@ -126,6 +143,10 @@ public final class OverlayAccessibility extends AccessibilityService {
             p.y = dp(40);
             wm.addView(panel,p);
         });
+    }
+
+    public void setPerformanceInfo(String message) {
+        main.post(() -> {if(performance!=null)performance.setText(message);});
     }
 
     public void setStatus(String message) {
@@ -179,17 +200,25 @@ public final class OverlayAccessibility extends AccessibilityService {
         return new float[]{rect.left+(x+.5f)*d,rect.top+(y+.5f)*d};
     }
 
-    public void executeMove(String uci, RectF rect, boolean whiteDown) {
+    public void executeMove(String uci, RectF rect, boolean whiteDown, boolean drag) {
         main.post(() -> {
             if (!attached || uci.length()<4) return;
             float[] from=centerOf(uci.substring(0,2),rect,whiteDown);
             float[] to=centerOf(uci.substring(2,4),rect,whiteDown);
-            // Most mobile chess apps accept select piece -> select destination.
-            Path p1=new Path(); p1.moveTo(from[0],from[1]);
-            Path p2=new Path(); p2.moveTo(to[0],to[1]);
-            GestureDescription gesture=new GestureDescription.Builder()
-                .addStroke(new GestureDescription.StrokeDescription(p1,0,90))
-                .addStroke(new GestureDescription.StrokeDescription(p2,240,90)).build();
+            GestureDescription gesture;
+            if(drag) {
+                Path route=new Path();
+                route.moveTo(from[0],from[1]);
+                route.lineTo(to[0],to[1]);
+                gesture=new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(route,0,330)).build();
+            } else {
+                Path p1=new Path(); p1.moveTo(from[0],from[1]);
+                Path p2=new Path(); p2.moveTo(to[0],to[1]);
+                gesture=new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(p1,0,90))
+                    .addStroke(new GestureDescription.StrokeDescription(p2,210,90)).build();
+            }
             boolean submitted=dispatchGesture(gesture,new GestureResultCallback() {
                 @Override public void onCancelled(GestureDescription d) {
                     if (ExternalController.active != null) ExternalController.active.gestureFailed();
@@ -204,7 +233,7 @@ public final class OverlayAccessibility extends AccessibilityService {
         main.post(() -> {
             if (wm == null) return;
             if (calibration != null) { wm.removeView(calibration);calibration=null; }
-            if (panel != null) { wm.removeView(panel);panel=null;status=null; }
+            if (panel != null) { wm.removeView(panel);panel=null;status=null;performance=null; }
             if (boardMarkers != null) { wm.removeView(boardMarkers);boardMarkers=null; }
             attached = false; origin = null; destination = null;
         });
