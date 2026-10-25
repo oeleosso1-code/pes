@@ -10,6 +10,7 @@ import android.graphics.PixelFormat;
 import android.graphics.RectF;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -18,230 +19,302 @@ import android.view.accessibility.AccessibilityEvent;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
-/** Explicitly enabled accessibility service for user-approved offline games only. */
+/** Visible, consent-enabled accessibility overlay, used for OFFLINE computer chess only. */
 public final class OverlayAccessibility extends AccessibilityService {
-    static OverlayAccessibility active;
+    private static final String TAG="ChessOverlay";
+    static volatile OverlayAccessibility active;
     private WindowManager wm;
     private View boardMarkers, calibration;
     private LinearLayout panel;
-    private TextView status;
-    private TextView performance;
-    private boolean showGuides = true;
-    private final Handler main = new Handler(Looper.getMainLooper());
-    private String origin, destination;
-    private RectF bounds;
-    private boolean whiteBottom = true;
-    private boolean attached;
+    private TextView status,performance;
+    private final Handler main=new Handler(Looper.getMainLooper());
+    private volatile boolean attached, demo, guidesEnabled=true;
+    private volatile String origin,destination;
+    private volatile RectF bounds;
+    private volatile boolean whiteBottom=true;
+
+    public static String lastDiagnostic(android.content.Context c) {
+        return c.getSharedPreferences("chess_diagnostic",MODE_PRIVATE)
+            .getString("last","خدمة إمكانية الوصول لم تتصل بعد");
+    }
+
+    private void report(String msg) {
+        getSharedPreferences("chess_diagnostic",MODE_PRIVATE)
+            .edit().putString("last",msg).apply();
+        Log.i(TAG,msg);
+        if(status!=null)status.setText(msg);
+    }
 
     @Override protected void onServiceConnected() {
         super.onServiceConnected();
-        active = this;
-        wm = (WindowManager) getSystemService(WINDOW_SERVICE);
-        if (ExternalController.active != null) attach();
+        active=this;
+        wm=(WindowManager)getSystemService(WINDOW_SERVICE);
+        report("✓ خدمة إمكانية الوصول متصلة");
+        if(ExternalController.active!=null)attach();
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
-    @Override public void onInterrupt() {}
+    @Override public void onInterrupt() {report("توقفت خدمة إمكانية الوصول");}
 
-    private int dp(float n) { return Math.round(getResources().getDisplayMetrics().density * n); }
+    private int dp(float n){return Math.round(getResources().getDisplayMetrics().density*n);}
 
-    private WindowManager.LayoutParams params(int w, int h, boolean touch) {
-        int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
-            (touch ? 0 : WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
-        WindowManager.LayoutParams p = new WindowManager.LayoutParams(w, h,
+    private WindowManager.LayoutParams params(int w,int h,boolean touch) {
+        int flags=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            |WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+            |(touch?0:WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
+        WindowManager.LayoutParams p=new WindowManager.LayoutParams(w,h,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            flags, PixelFormat.TRANSLUCENT);
-        p.gravity = Gravity.TOP | Gravity.LEFT;
+            flags,PixelFormat.TRANSLUCENT);
+        p.gravity=Gravity.TOP|Gravity.LEFT;
         return p;
     }
 
+    private Button action(String label,LinearLayout row) {
+        Button b=new Button(this);b.setText(label);b.setAllCaps(false);
+        b.setTextSize(10);b.setMinWidth(0);b.setMinimumWidth(0);
+        b.setPadding(0,0,0,0);
+        row.addView(b,new LinearLayout.LayoutParams(0,dp(43),1f));
+        return b;
+    }
+
     void attach() {
-        main.post(() -> {
-            if (attached || wm == null) return;
-            attached = true;
-            boardMarkers = new View(this) {
-                final Paint pen = new Paint(Paint.ANTI_ALIAS_FLAG);
-                @Override protected void onDraw(Canvas canvas) {
-                    super.onDraw(canvas);
-                    if (!showGuides || bounds == null || origin == null || destination == null) return;
-                    paintSquare(canvas, origin, Color.BLACK);
-                    paintSquare(canvas, destination, Color.rgb(21, 204, 78));
-                }
-                private void paintSquare(Canvas canvas, String sq, int color) {
-                    int file = sq.charAt(0) - 'a', rank = sq.charAt(1) - '1';
-                    int col = whiteBottom ? file : 7-file;
-                    int row = whiteBottom ? 7-rank : rank;
-                    float d = bounds.width()/8f;
-                    float x = bounds.left + col*d, y = bounds.top + row*d;
-                    // Thin borders preserve the piece and reduce overlay feedback into capture.
-                    pen.setStyle(Paint.Style.STROKE);
-                    pen.setStrokeWidth(Math.max(4,d*.085f));
-                    pen.setColor(color==Color.BLACK ? Color.rgb(13,13,13) : Color.rgb(0,220,56));
-                    canvas.drawRect(x+3,y+3,x+d-3,y+d-3,pen);
-                    pen.setStrokeWidth(Math.max(1,d*.018f));
-                    pen.setColor(color==Color.BLACK ? Color.WHITE : Color.BLACK);
-                    canvas.drawRect(x+7,y+7,x+d-7,y+d-7,pen);
-                }
-            };
-            wm.addView(boardMarkers, params(-1, -1, false));
-            panel = new LinearLayout(this);
-            panel.setOrientation(LinearLayout.VERTICAL);
-            panel.setPadding(dp(7),dp(5),dp(7),dp(5));
-            panel.setBackgroundColor(Color.argb(228,22,28,40));
-            status = new TextView(this);
-            status.setTextColor(Color.WHITE);
-            status.setTextSize(12);
-            status.setText("افتح لعبة شطرنج ضد الكمبيوتر، وابدأ مباراة جديدة");
-            panel.addView(status);
-            performance = new TextView(this);
-            performance.setTextColor(Color.rgb(16,220,121));
-            performance.setTextSize(10);
-            performance.setText("مشاركة الشاشة: جاري الإعداد");
-            panel.addView(performance);
-            LinearLayout row = new LinearLayout(this);
-            panel.addView(row);
-            Button calibrate = new Button(this);
-            calibrate.setText("تحديد الرقعة");
-            calibrate.setTextSize(12);
-            calibrate.setAllCaps(false);
-            row.addView(calibrate, new LinearLayout.LayoutParams(0,dp(42),1));
-            calibrate.setOnClickListener(v -> beginCalibration());
-            Button reset = new Button(this);
-            reset.setText("إعادة");
-            reset.setTextSize(12);
-            reset.setAllCaps(false);
-            row.addView(reset, new LinearLayout.LayoutParams(0,dp(42),1));
-            reset.setOnClickListener(v -> {
-                if (ExternalController.active != null) ExternalController.active.resetPosition();
-            });
-            Button pause = new Button(this);
-            pause.setText("⏸");
-            pause.setTextSize(12);
-            pause.setAllCaps(false);
-            row.addView(pause,new LinearLayout.LayoutParams(0,dp(42),.7f));
-            pause.setOnClickListener(v -> {
-                ExternalController c=ExternalController.active;
-                if(c!=null) {
-                    boolean next=!c.isPaused();
-                    c.setPaused(next);
-                    pause.setText(next ? "▶" : "⏸");
-                }
-            });
-            Button stop = new Button(this);
-            stop.setText("إيقاف");
-            stop.setTextSize(12);
-            stop.setAllCaps(false);
-            row.addView(stop, new LinearLayout.LayoutParams(0,dp(42),1));
-            stop.setOnClickListener(v -> {
-                if (ExternalController.active != null) ExternalController.active.stop();
-                stopService(new android.content.Intent(this,ExternalCaptureService.class));
-            });
-            WindowManager.LayoutParams p = params(-1, -2, true);
-            p.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-            p.y = dp(40);
-            wm.addView(panel,p);
+        main.post(()->{
+            if(attached || wm==null)return;
+            try {
+                boardMarkers=new View(this) {
+                    private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
+                    @Override protected void onDraw(Canvas canvas){
+                        super.onDraw(canvas);
+                        RectF r=bounds;
+                        if(!guidesEnabled || r==null || origin==null || destination==null)return;
+                        paintSquare(canvas,origin,Color.BLACK,r);
+                        paintSquare(canvas,destination,Color.rgb(0,215,75),r);
+                    }
+                    private void paintSquare(Canvas canvas,String square,int color,RectF r) {
+                        if(square==null||square.length()!=2)return;
+                        int file=square.charAt(0)-'a',rank=square.charAt(1)-'1';
+                        if(file<0||file>7||rank<0||rank>7)return;
+                        int col=whiteBottom?file:7-file;
+                        int row=whiteBottom?7-rank:rank;
+                        float d=r.width()/8f;
+                        float x=r.left+col*d,y=r.top+row*d;
+                        p.setStyle(Paint.Style.STROKE);
+                        p.setStrokeWidth(Math.max(dp(3),d*.075f));
+                        p.setColor(color);
+                        canvas.drawRect(x+3,y+3,x+d-3,y+d-3,p);
+                        p.setStrokeWidth(Math.max(dp(1),d*.018f));
+                        p.setColor(color==Color.BLACK?Color.WHITE:Color.BLACK);
+                        canvas.drawRect(x+7,y+7,x+d-7,y+d-7,p);
+                    }
+                };
+                wm.addView(boardMarkers,params(-1,-1,false));
+                panel=new LinearLayout(this);
+                panel.setOrientation(LinearLayout.VERTICAL);
+                panel.setPadding(dp(4),dp(4),dp(4),dp(4));
+                panel.setBackgroundColor(Color.argb(236,9,26,36));
+                status=new TextView(this);
+                status.setTextSize(12);status.setTextColor(Color.WHITE);
+                status.setText("✓ خدمة التأشير متصلة. اضغط اختبار قبل المعايرة");
+                panel.addView(status);
+                performance=new TextView(this);
+                performance.setTextSize(10);performance.setTextColor(Color.rgb(75,235,148));
+                performance.setText("التقاط: بانتظار الإطارات");
+                panel.addView(performance);
+                LinearLayout row=new LinearLayout(this);panel.addView(row);
+                Button calibrate=action("معايرة",row);
+                calibrate.setOnClickListener(v->beginCalibration());
+                Button test=action("اختبار التأشير",row);
+                test.setOnClickListener(v->showDemoMarkers());
+                Button pause=action("⏸",row);
+                pause.setOnClickListener(v->{
+                    ExternalController c=ExternalController.active;
+                    if(c!=null){
+                        boolean next=!c.isPaused();c.setPaused(next);
+                        pause.setText(next?"▶":"⏸");
+                    }else report("لم تبدأ جلسة مشاركة الشاشة");
+                });
+                Button stop=action("إنهاء",row);
+                stop.setOnClickListener(v->{
+                    if(ExternalController.active!=null)ExternalController.active.stop();
+                    stopService(new android.content.Intent(this,ExternalCaptureService.class));
+                    report("تم إيقاف مشاركة الشاشة");
+                });
+                WindowManager.LayoutParams panelParams=params(-1,-2,true);
+                panelParams.gravity=Gravity.TOP|Gravity.CENTER_HORIZONTAL;
+                panelParams.y=dp(22);
+                wm.addView(panel,panelParams);
+                attached=true;report("✓ الشريط العائم ظهر بنجاح. اختبر التأشير ثم حدد الرقعة");
+            }catch(Exception e){
+                Log.e(TAG,"Failed to install accessibility overlay",e);
+                // A half-created overlay must never make future attempts silently fail.
+                safeRemove(calibration);calibration=null;
+                safeRemove(panel);panel=null;status=null;performance=null;
+                safeRemove(boardMarkers);boardMarkers=null;
+                attached=false;
+                report("فشل عرض الشريط: "+e.getClass().getSimpleName()+" "+e.getMessage());
+                Toast.makeText(this,"فشل الشريط العائم: "+e.getMessage(),Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    public void setStatus(String message) {
+        main.post(()->{
+            if(status!=null)status.setText(message);
+            getSharedPreferences("chess_diagnostic",MODE_PRIVATE).edit()
+                .putString("capture",message).apply();
         });
     }
 
     public void setPerformanceInfo(String message) {
-        main.post(() -> {if(performance!=null)performance.setText(message);});
+        main.post(()->{if(performance!=null)performance.setText(message);});
     }
 
-    public void setStatus(String message) {
-        main.post(() -> { if (status != null) status.setText(message); });
-    }
-
-    public void showMove(String from, String to, RectF rect, boolean whiteDown) {
-        main.post(() -> {
-            origin = from; destination = to;
-            bounds = rect == null ? null : new RectF(rect);
-            whiteBottom = whiteDown;
-            if (boardMarkers != null) boardMarkers.invalidate();
+    public void showMove(String from,String to,RectF r,boolean whiteDown) {
+        main.post(()->{
+            demo=false;origin=from;destination=to;
+            bounds=r==null?null:new RectF(r);
+            whiteBottom=whiteDown;
+            if(boardMarkers!=null)boardMarkers.invalidate();
         });
     }
 
-    private void beginCalibration() {
-        if (calibration != null || wm == null) return;
-        final float[] corner = new float[2];
-        final int[] clicks = {0};
-        setStatus("المعايرة: المس الزاوية العليا اليسرى من الرقعة ثم الزاوية السفلى اليمنى");
-        calibration = new View(this) {
-            final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            @Override protected void onDraw(Canvas c) {
-                c.drawColor(Color.argb(43,0,170,110));
-                paint.setColor(Color.WHITE); paint.setTextSize(dp(18)); paint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-                c.drawText(clicks[0]==0 ? "1: المس أعلى يسار الرقعة" : "2: المس أسفل يمين الرقعة", dp(24),dp(200),paint);
+    /** Explicit visual self-test, independent of MediaProjection and piece recognition. */
+    public void showDemoMarkers() {
+        attach();
+        main.postDelayed(()->{
+            if(!attached||wm==null)return;
+            android.graphics.Rect frame;
+            if(android.os.Build.VERSION.SDK_INT>=30)
+                frame=wm.getMaximumWindowMetrics().getBounds();
+            else{
+                android.graphics.Point p=new android.graphics.Point();
+                wm.getDefaultDisplay().getRealSize(p);
+                frame=new android.graphics.Rect(0,0,p.x,p.y);
             }
-            @Override public boolean onTouchEvent(MotionEvent e) {
-                if (e.getAction()!=MotionEvent.ACTION_UP) return true;
+            float d=Math.min(frame.width()*.85f,frame.height()*.56f);
+            float left=(frame.width()-d)/2f;
+            float top=(frame.height()-d)/2f;
+            demo=true;guidesEnabled=true;
+            origin="e2";destination="e4";whiteBottom=true;
+            bounds=new RectF(left,top,left+d,top+d);
+            if(boardMarkers!=null)boardMarkers.invalidate();
+            report("اختبار ناجح للشريط: يجب رؤية إطار أسود وأخضر في وسط الشاشة. المعايرة تلغي الاختبار");
+        },160);
+    }
+
+    private void beginCalibration() {
+        if(calibration!=null||wm==null)return;
+        demo=false;origin=null;destination=null;bounds=null;
+        if(boardMarkers!=null)boardMarkers.invalidate();
+        final float[] start=new float[2];final int[] touches={0};
+        setStatus("المعايرة: الزاوية العليا اليسرى، ثم السفلى اليمنى");
+        calibration=new View(this){
+            final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
+            @Override protected void onDraw(Canvas c) {
+                c.drawColor(Color.argb(48,15,155,80));
+                p.setColor(Color.WHITE);p.setTextSize(dp(19));
+                c.drawText(touches[0]==0?"1: أعلى يسار الرقعة":"2: أسفل يمين الرقعة",dp(14),dp(205),p);
+            }
+            @Override public boolean onTouchEvent(MotionEvent e){
+                if(e.getAction()!=MotionEvent.ACTION_UP)return true;
                 float x=e.getRawX(),y=e.getRawY();
-                if (clicks[0]++ == 0) {
-                    corner[0]=x; corner[1]=y;
-                    invalidate();
-                } else {
-                    RectF rect = new RectF(corner[0],corner[1],x,y);
-                    if (wm != null && calibration != null) {
-                        wm.removeView(calibration); calibration=null;
-                    }
-                    if (ExternalController.active != null) ExternalController.active.calibrate(rect);
+                if(touches[0]++==0){start[0]=x;start[1]=y;invalidate();}
+                else{
+                    safeRemove(calibration);calibration=null;
+                    if(ExternalController.active!=null)
+                        ExternalController.active.calibrate(new RectF(start[0],start[1],x,y));
+                    else setStatus("ابدأ مشاركة الشاشة قبل المعايرة");
                 }
                 return true;
             }
         };
-        wm.addView(calibration,params(-1,-1,true));
+        try{wm.addView(calibration,params(-1,-1,true));}
+        catch(Exception e){calibration=null;report("فشل فتح المعايرة: "+e.getMessage());}
     }
 
-    private float[] centerOf(String square, RectF rect, boolean whiteDown) {
-        int file = square.charAt(0)-'a', rank=square.charAt(1)-'1';
+    private float[] centerOf(String square,RectF r,boolean whiteDown){
+        int file=square.charAt(0)-'a',rank=square.charAt(1)-'1';
         int x=whiteDown?file:7-file,y=whiteDown?7-rank:rank;
-        float d=rect.width()/8f;
-        return new float[]{rect.left+(x+.5f)*d,rect.top+(y+.5f)*d};
+        float w=r.width()/8f,h=r.height()/8f;
+        return new float[]{r.left+(x+.5f)*w,r.top+(y+.5f)*h};
     }
 
-    public void executeMove(String uci, RectF rect, boolean whiteDown, boolean drag) {
-        main.post(() -> {
-            if (!attached || uci.length()<4) return;
-            float[] from=centerOf(uci.substring(0,2),rect,whiteDown);
-            float[] to=centerOf(uci.substring(2,4),rect,whiteDown);
-            GestureDescription gesture;
-            if(drag) {
-                Path route=new Path();
-                route.moveTo(from[0],from[1]);
-                route.lineTo(to[0],to[1]);
-                gesture=new GestureDescription.Builder()
-                    .addStroke(new GestureDescription.StrokeDescription(route,0,330)).build();
-            } else {
-                Path p1=new Path(); p1.moveTo(from[0],from[1]);
-                Path p2=new Path(); p2.moveTo(to[0],to[1]);
-                gesture=new GestureDescription.Builder()
-                    .addStroke(new GestureDescription.StrokeDescription(p1,0,90))
-                    .addStroke(new GestureDescription.StrokeDescription(p2,210,90)).build();
+    private void tap(float x,float y,GestureResultCallback callback){
+        Path p=new Path();p.moveTo(x,y);
+        GestureDescription g=new GestureDescription.Builder()
+            .addStroke(new GestureDescription.StrokeDescription(p,0,70)).build();
+        if(!dispatchGesture(g,callback,main))report("تعذر إرسال إيماءة لمس إلى Android");
+    }
+
+    /** Only used after the user taps 'test touch' and can observe a target inside this app. */
+    public void testTouch(float x,float y) {
+        main.post(()->{
+            if(!attached)attach();
+            tap(x,y,new GestureResultCallback(){
+                @Override public void onCompleted(GestureDescription g){report("✓ أرسل Android لمسة اختبار، تحقق أن الزر استجاب");}
+                @Override public void onCancelled(GestureDescription g){report("فشل لمس الاختبار: ألغاه النظام");}
+            });
+        });
+    }
+
+    public void executeMove(String uci,RectF r,boolean whiteDown,boolean drag){
+        main.post(()->{
+            if(!attached||uci==null||uci.length()<4||r==null){
+                if(ExternalController.active!=null)ExternalController.active.gestureFailed();
+                return;
             }
-            boolean submitted=dispatchGesture(gesture,new GestureResultCallback() {
-                @Override public void onCancelled(GestureDescription d) {
-                    if (ExternalController.active != null) ExternalController.active.gestureFailed();
+            float[] from=centerOf(uci.substring(0,2),r,whiteDown);
+            float[] to=centerOf(uci.substring(2,4),r,whiteDown);
+            GestureResultCallback callback=new GestureResultCallback(){
+                @Override public void onCancelled(GestureDescription g){
+                    if(ExternalController.active!=null)ExternalController.active.gestureFailed();
+                    setStatus("ألغى النظام اللمسة. أوقف التشغيل وتحقق من الخدمة");
                 }
-            },main);
-            if (!submitted && ExternalController.active != null)
-                ExternalController.active.gestureFailed();
+            };
+            if(drag){
+                Path p=new Path();p.moveTo(from[0],from[1]);
+                p.lineTo(to[0],to[1]);
+                GestureDescription g=new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(p,0,370)).build();
+                if(!dispatchGesture(g,callback,main)&&ExternalController.active!=null)
+                    ExternalController.active.gestureFailed();
+            }else{
+                // Sequential callbacks: some chess apps ignore two strokes submitted at once.
+                tap(from[0],from[1],new GestureResultCallback(){
+                    @Override public void onCompleted(GestureDescription first) {
+                        main.postDelayed(()->{
+                            ExternalController c=ExternalController.active;
+                            if(c==null||c.isPaused())return;
+                            tap(to[0],to[1],callback);
+                        },145);
+                    }
+                    @Override public void onCancelled(GestureDescription first){
+                        if(ExternalController.active!=null)ExternalController.active.gestureFailed();
+                    }
+                });
+            }
         });
     }
 
-    void detach() {
-        main.post(() -> {
-            if (wm == null) return;
-            if (calibration != null) { wm.removeView(calibration);calibration=null; }
-            if (panel != null) { wm.removeView(panel);panel=null;status=null;performance=null; }
-            if (boardMarkers != null) { wm.removeView(boardMarkers);boardMarkers=null; }
-            attached = false; origin = null; destination = null;
+    private void safeRemove(View v) {
+        if(v!=null && wm!=null)try{wm.removeView(v);}catch(Exception ignored){}
+    }
+
+    void detach(){
+        main.post(()->{
+            safeRemove(calibration);calibration=null;
+            safeRemove(panel);panel=null;status=null;performance=null;
+            safeRemove(boardMarkers);boardMarkers=null;
+            attached=false;origin=null;destination=null;bounds=null;demo=false;
         });
     }
 
-    @Override public void onDestroy() {
-        detach();
-        active = null;
+    @Override public void onDestroy(){
+        detach();active=null;
+        getSharedPreferences("chess_diagnostic",MODE_PRIVATE).edit()
+            .putString("last","خدمة إمكانية الوصول توقفت").apply();
         super.onDestroy();
     }
 }
