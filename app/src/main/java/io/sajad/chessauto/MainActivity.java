@@ -33,6 +33,8 @@ public final class MainActivity extends Activity {
     private Button levelButton;
     private EditText fenInput;
     private LinearLayout internalPanel,externalPanel;
+    private TextView moveHistory,frameDiagnostic;
+    private final java.util.ArrayList<String> internalMoves=new java.util.ArrayList<>();
     private boolean running = false;
     private int generation = 0;
     private int plies = 0;
@@ -116,6 +118,19 @@ public final class MainActivity extends Activity {
         int width=getResources().getDisplayMetrics().widthPixels-dp(44);
         internalPanel.addView(boardView,new LinearLayout.LayoutParams(-1,width));
         lastMove=text("",14,false);internalPanel.addView(lastMove);
+        moveHistory=text("سجل النقلات: لم تبدأ المباراة",12,false);
+        internalPanel.addView(moveHistory);
+        Button copyHistory=new Button(this);
+        copyHistory.setAllCaps(false);copyHistory.setText("مشاركة سجل النقلات");
+        internalPanel.addView(copyHistory);
+        copyHistory.setOnClickListener(v->{
+            if(internalMoves.isEmpty())return;
+            String moves=internalMoveText();
+            android.content.Intent share=new android.content.Intent(android.content.Intent.ACTION_SEND);
+            share.setType("text/plain");
+            share.putExtra(android.content.Intent.EXTRA_TEXT,moves);
+            startActivity(android.content.Intent.createChooser(share,"مشاركة سجل النقلات"));
+        });
         LinearLayout actions=new LinearLayout(this);internalPanel.addView(actions);
         start=button("▶ ابدأ اللعب",actions);
         Button restart=button("↻ مباراة جديدة",actions);
@@ -155,11 +170,24 @@ public final class MainActivity extends Activity {
                 board = b;
             }
             plies = 0;
+            internalMoves.clear();
+            if(moveHistory!=null)moveHistory.setText("سجل النقلات: لم تبدأ المباراة");
             lastMove.setText("مباراة جديدة");
             render();
         } catch (Exception ex) {
             status.setText("صيغة FEN غير صحيحة: " + ex.getMessage());
         }
+    }
+
+    /** Human-readable UCI history: not advertised as PGN/SAN. */
+    private String internalMoveText() {
+        StringBuilder sb=new StringBuilder("سجل النقلات (UCI)\n");
+        for(int i=0;i<internalMoves.size();i++){
+            if(i%2==0)sb.append((i/2)+1).append(". ");
+            sb.append(internalMoves.get(i));
+            sb.append(i%2==0?" ":"\n");
+        }
+        return sb.toString();
     }
 
     private boolean gameOver() {
@@ -204,6 +232,8 @@ public final class MainActivity extends Activity {
                         }
                         board.doMove(move);
                         plies++;
+                        internalMoves.add(uci);
+                        if(moveHistory!=null)moveHistory.setText(internalMoveText());
                         lastMove.setText((strongest ? "البوت" : "الكمبيوتر") + ": " + uci);
                         render();
                         if (running && !gameOver()) ui.postDelayed(() -> scheduleMove(token), 400);
@@ -292,6 +322,32 @@ public final class MainActivity extends Activity {
         });
         permissionDiagnostic=text("حالة الخدمة: يتم التحقق...",13,true);
         root.addView(permissionDiagnostic);
+        frameDiagnostic=text("الشاشة: لم يبدأ التقاط الإطارات",13,false);
+        root.addView(frameDiagnostic);
+        Button captureCheck=new Button(this);
+        captureCheck.setText("فحص حالة التقاط الشاشة والإطارات");
+        captureCheck.setAllCaps(false);
+        root.addView(captureCheck);
+        captureCheck.setOnClickListener(v->refreshCaptureDiagnostics());
+        Button shareLog=new Button(this);
+        shareLog.setText("مشاركة تقرير فحص الصلاحيات (من دون صور)");
+        shareLog.setAllCaps(false);
+        root.addView(shareLog);
+        shareLog.setOnClickListener(v->{
+            refreshPermissionDiagnostics();
+            refreshCaptureDiagnostics();
+            String log="Chess AI 3 Android diagnostic\\n"
+                +"App: "+getPackageName()+"\\n"
+                +"Accessibility: "+(permissionDiagnostic==null?"غير معروف":permissionDiagnostic.getText())+"\\n"
+                +"Overlay: "+OverlayAccessibility.lastDiagnostic(this)+"\\n"
+                +"Capture: "+getSharedPreferences("chess_diagnostic",MODE_PRIVATE)
+                    .getString("capture","لم يبدأ الالتقاط")+"\\n"
+                +"Frames: "+(frameDiagnostic==null?"غير معروف":frameDiagnostic.getText())+"\\n";
+            android.content.Intent intent=new android.content.Intent(android.content.Intent.ACTION_SEND);
+            intent.setType("text/plain");
+            intent.putExtra(android.content.Intent.EXTRA_TEXT,log);
+            startActivity(android.content.Intent.createChooser(intent,"مشاركة تقرير التشخيص"));
+        });
         Button check=new Button(this);
         check.setAllCaps(false);check.setText("فحص خدمة إمكانية الوصول");
         root.addView(check);
@@ -409,6 +465,21 @@ public final class MainActivity extends Activity {
     @Override protected void onResume(){
         super.onResume();
         if(permissionDiagnostic!=null)refreshPermissionDiagnostics();
+        if(frameDiagnostic!=null)refreshCaptureDiagnostics();
+    }
+
+    private void refreshCaptureDiagnostics(){
+        if(frameDiagnostic==null)return;
+        android.content.SharedPreferences prefs=getSharedPreferences("chess_diagnostic",MODE_PRIVATE);
+        float fps=prefs.getFloat("fps",0f);
+        long at=prefs.getLong("frame_at",0);
+        long elapsed=at==0 ? -1 : android.os.SystemClock.elapsedRealtime()-at;
+        String status=prefs.getString("capture","لا توجد رسائل مشاركة الشاشة");
+        if(elapsed>=0&&elapsed<5000)
+            frameDiagnostic.setText(String.format(java.util.Locale.US,
+                "✓ صور الشاشة تصل · %.1f إطار/ثانية · %s",fps,status));
+        else
+            frameDiagnostic.setText("⚠ لم تصل إطارات حديثة. "+status);
     }
 
     private void refreshPermissionDiagnostics(){
