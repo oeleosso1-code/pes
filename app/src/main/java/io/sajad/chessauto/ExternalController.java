@@ -20,7 +20,8 @@ import java.util.concurrent.Executors;
  * When a move cannot be identified unambiguously, it does not touch the other app.
  */
 public final class ExternalController {
-    static ExternalController active;
+    static volatile ExternalController active;
+    static volatile String lastStatus = "لم تبدأ مشاركة الشاشة";
     private final Context context;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -67,6 +68,11 @@ public final class ExternalController {
     }
 
     public static void notifyStatus(String message) {
+        lastStatus = message;
+        ExternalController c=active;
+        if(c!=null) c.context.getSharedPreferences("chess_diagnostic",Context.MODE_PRIVATE)
+            .edit().putString("capture",message)
+            .putLong("capture_status_at",android.os.SystemClock.elapsedRealtime()).apply();
         if (OverlayAccessibility.active != null) OverlayAccessibility.active.setStatus(message);
     }
 
@@ -133,6 +139,9 @@ public final class ExternalController {
 
     public synchronized void onFrameRate(double fps) {
         latestFps=(float)fps;
+        context.getSharedPreferences("chess_diagnostic",Context.MODE_PRIVATE)
+            .edit().putFloat("fps",latestFps)
+            .putLong("frame_at",android.os.SystemClock.elapsedRealtime()).apply();
         if(OverlayAccessibility.active!=null)
             OverlayAccessibility.active.setPerformanceInfo(String.format(java.util.Locale.US,"التقاط %.1f FPS · Stockfish 19",fps));
     }
@@ -473,6 +482,11 @@ public final class ExternalController {
             boolean[] expected = new boolean[64];
             expected[a] = true;
             expected[b] = true;
+            // En passant removes an additional pawn from the attacker's starting rank.
+            if (from.charAt(0)!=to.charAt(0)
+                && board.getPiece(m.getFrom()).toString().toUpperCase().contains("PAWN")
+                && board.getPiece(m.getTo()).toString().toUpperCase().contains("NONE"))
+                expected[viewIndex(to.charAt(0)+from.substring(1,2))]=true;
             if (Math.abs(from.charAt(0) - to.charAt(0)) == 2
                 && board.getPiece(m.getFrom()).toString().toUpperCase().contains("KING")) {
                 char rank = from.charAt(1);
