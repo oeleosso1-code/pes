@@ -1,7 +1,7 @@
-name: Chess AI Auto Player v3 Beta APK
+name: Chess AI Auto Player 3.1 Repair APK
 on:
   push:
-    branches: [chess-ai-v3-beta]
+    branches: [chess-ai-v3-repair]
   workflow_dispatch:
 permissions:
   contents: read
@@ -44,7 +44,7 @@ jobs:
       - name: Publish installable APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chess-ai-v3-beta-apk
+          name: chess-ai-v3-repair-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
