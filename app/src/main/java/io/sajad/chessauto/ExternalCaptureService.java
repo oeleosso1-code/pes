@@ -43,6 +43,16 @@ public final class ExternalCaptureService extends Service {
     private long lastFrame;
     private long lastWarning;
     private long frameCounter, lastRateTime;
+    private boolean firstImageReported;
+
+    private void report(String message) {
+        getSharedPreferences("chess_capture_diagnostics",MODE_PRIVATE).edit()
+            .putString("status",message)
+            .putLong("timestamp",SystemClock.elapsedRealtime())
+            .apply();
+        ExternalController.notifyStatus(message);
+        android.util.Log.i("ChessCapture",message);
+    }
 
     @Override public void onCreate() {
         super.onCreate();
@@ -89,7 +99,7 @@ public final class ExternalCaptureService extends Service {
             if (projection == null) throw new IllegalStateException("رفض Android مشاركة الشاشة");
             projection.registerCallback(new MediaProjection.Callback() {
                 @Override public void onStop() {
-                    ExternalController.notifyStatus("توقفت مشاركة الشاشة. أعد الموافقة لبدء جلسة جديدة");
+                    report("توقفت مشاركة الشاشة. أعد الموافقة لبدء جلسة جديدة");
                     main.post(() -> stopSelf());
                 }
                 @Override public void onCapturedContentResize(int w,int h) {
@@ -102,10 +112,10 @@ public final class ExternalCaptureService extends Service {
                 width,height,density,DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 reader.getSurface(),null,processing);
             lastRateTime=SystemClock.elapsedRealtime();
-            ExternalController.notifyStatus("✓ مشاركة الشاشة بدأت. افتح مباراة كمبيوتر جديدة وعاير الرقعة");
+            report("✓ خدمة مشاركة الشاشة بدأت. ننتظر وصول الصور...");
             return START_NOT_STICKY;
         } catch (Exception e) {
-            ExternalController.notifyStatus("فشل مشاركة الشاشة: "+e.getMessage());
+            report("فشل مشاركة الشاشة: "+e.getMessage());
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -134,9 +144,9 @@ public final class ExternalCaptureService extends Service {
             }
             ExternalController c=ExternalController.active;
             if (c!=null) c.onCaptureResized(w,h);
-            ExternalController.notifyStatus("تغيّر حجم العرض. أعد تحديد الرقعة لضمان دقة اللمس");
+            report("تغيّر حجم العرض. أعد تحديد الرقعة لضمان دقة اللمس");
         } catch (Exception e) {
-            ExternalController.notifyStatus("فشل إعادة قياس الشاشة: "+e.getMessage());
+            report("فشل إعادة قياس الشاشة: "+e.getMessage());
             main.post(() -> stopSelf());
         }
     }
@@ -158,15 +168,23 @@ public final class ExternalCaptureService extends Service {
             padded=Bitmap.createBitmap(stride/pixelStride,h,Bitmap.Config.ARGB_8888);
             padded.copyPixelsFromBuffer(bytes);
             cropped=Bitmap.createBitmap(padded,0,0,w,h);
-            // Detect evidently black/protected capture, never act on it.
-            int color=cropped.getPixel(w/2,h/2);
-            int other=cropped.getPixel(w/4,h/3);
-            if ((color&0xffffff)==0 && (other&0xffffff)==0) {
+            // Avoid mistaking a dark chess theme for a protected window.
+            int dark=0;
+            for(int sy=1;sy<=4;sy++)for(int sx=1;sx<=4;sx++){
+                int color=cropped.getPixel(w*sx/5,h*sy/5)&0xffffff;
+                int max=Math.max((color>>16)&255,Math.max((color>>8)&255,color&255));
+                if(max<7)dark++;
+            }
+            if (dark>=16) {
                 if (now-lastWarning>3000) {
-                    ExternalController.notifyStatus("الصورة سوداء أو محمية؛ أوقف التحليل وافحص إذن المشاركة");
+                    report("الصورة سوداء أو محمية؛ أوقف التحليل وافحص إذن المشاركة");
                     lastWarning=now;
                 }
                 return;
+            }
+            if(!firstImageReported){
+                firstImageReported=true;
+                report("✓ وصلت أول صورة من الشاشة ("+w+"×"+h+"). يمكنك معايرة الرقعة.");
             }
             ExternalController c=ExternalController.active;
             if(c!=null) {
@@ -180,7 +198,7 @@ public final class ExternalCaptureService extends Service {
             }
         } catch (Exception e) {
             if(SystemClock.elapsedRealtime()-lastWarning>3000) {
-                ExternalController.notifyStatus("خطأ قراءة الصورة: "+e.getMessage());
+                report("خطأ قراءة الصورة: "+e.getMessage());
                 lastWarning=SystemClock.elapsedRealtime();
             }
         } finally {
