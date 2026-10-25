@@ -313,6 +313,48 @@ public final class MainActivity extends Activity {
         externalFen.setHintTextColor(Color.GRAY);
         externalFen.setHint("اختياري: ألصق FEN إذا المباراة بدأت بالفعل. اتركه فارغاً فقط للمباراة الجديدة");
         root.addView(externalFen, new LinearLayout.LayoutParams(-1, dp(77)));
+        Button testEngine=new Button(this);
+        testEngine.setText("فحص محرك Stockfish وحساب نقلة داخل التطبيق");
+        testEngine.setAllCaps(false);
+        root.addView(testEngine);
+        testEngine.setOnClickListener(v->{
+            String fen=externalFen.getText().toString().trim();
+            if(fen.isEmpty())fen=new Board().getFen();
+            final String position=fen;
+            try{
+                Board check=new Board();
+                check.loadFromFen(position);
+                if(check.legalMoves().isEmpty()){
+                    externalStatus.setText("هذه الوضعية ليس فيها نقلة قانونية");
+                    return;
+                }
+            }catch(Exception e){
+                externalStatus.setText("FEN غير صحيح: "+e.getMessage());
+                return;
+            }
+            testEngine.setEnabled(false);
+            externalStatus.setText("جاري فحص Stockfish محلياً (بلا مشاركة شاشة أو خدمة لمس)");
+            work.submit(()->{
+                long start=android.os.SystemClock.elapsedRealtime();
+                try{
+                    String answer=engine.bestMove(position,350,false,3000);
+                    Board trial=new Board();trial.loadFromFen(position);
+                    Move candidate=new Move(answer,trial.getSideToMove());
+                    if(!trial.isMoveLegal(candidate,true))
+                        throw new IllegalStateException("المحرك أعاد نقلة غير قانونية");
+                    long ms=android.os.SystemClock.elapsedRealtime()-start;
+                    ui.post(()->{
+                        testEngine.setEnabled(true);
+                        externalStatus.setText("✓ Stockfish أرجع نقلة قانونية: "+answer+" · "+ms+"ms");
+                    });
+                }catch(Exception e){
+                    ui.post(()->{
+                        testEngine.setEnabled(true);
+                        externalStatus.setText("✗ فشل اختبار Stockfish: "+e.getMessage());
+                    });
+                }
+            });
+        });
         root.addView(text("إرشاد Stockfish الحقيقي بدون مشاركة شاشة: اكتب FEN الدقيق أو اتركه فارغاً لوضع البداية. يعرض نقلة واحدة ولا يتابع تغيّرات الرقعة أو يلمس تلقائياً.",12,false));
         Button manualHint=new Button(this);
         manualHint.setAllCaps(false);
