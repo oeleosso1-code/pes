@@ -99,7 +99,7 @@ public final class MainActivity extends Activity {
         TextView knight=text("♞",66,true);
         knight.setTextColor(0xffe4bc69);
         root.addView(knight,new LinearLayout.LayoutParams(-1,dp(103)));
-        TextView heading=text("Chess AI Auto Player 3.0",23,true);
+        TextView heading=text("Chess AI Auto Player 3.1",23,true);
         heading.setTextColor(0xffe6cb83);root.addView(heading);
         root.addView(text("بوت شطرنج قوي ضد الكمبيوتر فقط · Stockfish 19",13,false));
         LinearLayout modes=new LinearLayout(this);root.addView(modes);
@@ -288,6 +288,54 @@ public final class MainActivity extends Activity {
         enable.setOnClickListener(v -> {
             startActivity(new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
         });
+
+        // Independent tests: users can check the accessibility overlay and
+        // Android gesture injection BEFORE sharing the screen or calibrating.
+        TextView diagnosticsTitle=text("اختبار الصلاحيات قبل تشغيل الشطرنج",16,true);
+        root.addView(diagnosticsTitle);
+        Button visualCheck=new Button(this);
+        visualCheck.setText("أ — اختبار التأشير الأسود والأخضر");
+        visualCheck.setAllCaps(false);
+        root.addView(visualCheck);
+        visualCheck.setOnClickListener(v -> {
+            OverlayAccessibility service=OverlayAccessibility.active;
+            if(service==null) {
+                externalStatus.setText("خدمة إمكانية الوصول غير متصلة. فعّلها من إعدادات الهاتف؛ وإذا ظهرت إعدادات مقيّدة راجع السماح بالتطبيق من صفحة معلوماته.");
+                return;
+            }
+            service.showDiagnosticMarkers();
+            externalStatus.setText("راقب الشاشة: سيظهر اختبار المربعين الأسود والأخضر والشريط العائم، مستقلّين عن الشطرنج.");
+            ui.postDelayed(() -> externalStatus.setText(service.overlayDiagnostics()),850);
+        });
+        Button testTarget=new Button(this);
+        testTarget.setText("هدف اختبار اللمس — لا تضغطه يدوياً");
+        testTarget.setAllCaps(false);
+        testTarget.setBackground(cardBackground(0xff17533d,0xff0b392b,12,0xff22ba77));
+        testTarget.setTextColor(Color.WHITE);
+        root.addView(testTarget,new LinearLayout.LayoutParams(-1,dp(55)));
+        testTarget.setOnClickListener(v -> {
+            externalStatus.setText("✓ وصلت اللمسة إلى الهدف داخل التطبيق. خدمة اللمس قادرة على إرسال النقرات.");
+        });
+        Button gestureCheck=new Button(this);
+        gestureCheck.setText("ب — إرسال لمسة اختبار إلى الزر الأخضر أعلاه");
+        gestureCheck.setAllCaps(false);
+        root.addView(gestureCheck);
+        gestureCheck.setOnClickListener(v -> {
+            OverlayAccessibility service=OverlayAccessibility.active;
+            if(service==null) {
+                externalStatus.setText("خدمة إمكانية الوصول غير مفعلة. لا يمكن اختبار اللمس.");
+                return;
+            }
+            int[] xy=new int[2];
+            testTarget.getLocationOnScreen(xy);
+            if(testTarget.getWidth()<10 || testTarget.getHeight()<10) {
+                externalStatus.setText("أظهر زر الهدف الأخضر بالكامل ثم أعد الاختبار.");
+                return;
+            }
+            externalStatus.setText("جاري إرسال لمسة إلى الهدف الأخضر داخل التطبيق...");
+            service.testTapOnOwnApp(xy[0]+testTarget.getWidth()/2f,xy[1]+testTarget.getHeight()/2f);
+        });
+
         Button share = new Button(this);
         share.setText("2 — مشاركة الشاشة وتشغيل المساعد الخارجي");
         share.setAllCaps(false);
@@ -315,7 +363,7 @@ public final class MainActivity extends Activity {
                 externalStatus.setText("تعذر طلب المشاركة: " + e.getMessage());
             }
         });
-        externalStatus = text("بعد بدء المشاركة افتح اللعبة واضغط «تحديد الرقعة» من الشريط العائم.", 13, false);
+        externalStatus = text("ابدأ باختبار التأشير واللمس حتى تتأكد من إذن إمكانية الوصول، ثم شغّل مشاركة الشاشة.", 13, false);
         root.addView(externalStatus);
         Button end = new Button(this);
         end.setAllCaps(false);
@@ -344,13 +392,7 @@ public final class MainActivity extends Activity {
         capture.putExtra(ExternalCaptureService.EXTRA_DATA, data);
         try {
             startForegroundService(capture);
-            if (externalStatus != null) externalStatus.setText("المشاركة بدأت: افتح لعبة كمبيوتر جديدة ثم عاير الرقعة.");
-            ui.postDelayed(() -> {
-                android.content.Intent home = new android.content.Intent(android.content.Intent.ACTION_MAIN);
-                home.addCategory(android.content.Intent.CATEGORY_HOME);
-                home.setFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(home);
-            }, 700);
+            if (externalStatus != null) externalStatus.setText("تم إرسال طلب بدء المشاركة. تحقق من ظهور لوحة الشطرنج العائمة، ثم افتح لعبة الكمبيوتر بنفسك وعاير الرقعة.");
         } catch (Exception e) {
             if (externalStatus != null) externalStatus.setText("فشل بدء المشاركة: " + e.getMessage());
         }
