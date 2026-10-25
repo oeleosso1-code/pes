@@ -45,3 +45,6 @@ Color fills the ENTIRE board square (dark = source, green = destination).
 This algorithm cannot distinguish bishop from knight or side from occupancy alone,
 so unusual visually valid but wrong positions remain possible. No on-device
 integration test against Chess.com has been performed.
+
+## Independent debug APK package
+Android ID `io.sajad.chessauto.external.safesync` is installed alongside v1 and v2. Each CI job uses an ephemeral debug signing key; different package IDs avoid Android signature mismatch when trying the experimental fix. Do not treat this as a future update mechanism; a production app will need a persistent protected signing key.
