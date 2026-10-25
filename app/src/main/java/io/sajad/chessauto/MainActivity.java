@@ -155,7 +155,7 @@ public final class MainActivity extends Activity {
         externalPanel.addView(text("▣ مشاركة الشاشة مع تطبيق شطرنج خارجي",17,true));
         externalPanel.addView(text("اللعب ضد الكمبيوتر فقط · المعايرة مطلوبة · الإيقاف تلقائي عند فقد التزامن",13,false));
         addExternalControls(externalPanel);
-        root.addView(text("الإصدار 3.1: اختبار مستقل للصلاحيات والتأشير واللمس، والتزامن الآمن قبل النقلات. يتطلب اختبار الهاتف.",12,false));
+        root.addView(text("الإصدار 3.3: تشغيل إرشاد Stockfish من FEN دون التقاط، وتشخيص الصلاحيات، والتزامن الآمن. يحتاج اختباراً عملياً.",12,false));
     }
 
     private void reset(String fen) {
@@ -313,6 +313,44 @@ public final class MainActivity extends Activity {
         externalFen.setHintTextColor(Color.GRAY);
         externalFen.setHint("اختياري: ألصق FEN إذا المباراة بدأت بالفعل. اتركه فارغاً فقط للمباراة الجديدة");
         root.addView(externalFen, new LinearLayout.LayoutParams(-1, dp(77)));
+        root.addView(text("إرشاد Stockfish الحقيقي بدون مشاركة شاشة: اكتب FEN الدقيق أو اتركه فارغاً لوضع البداية. يعرض نقلة واحدة ولا يتابع تغيّرات الرقعة أو يلمس تلقائياً.",12,false));
+        Button manualHint=new Button(this);
+        manualHint.setAllCaps(false);
+        manualHint.setText("♟ إرشاد Stockfish من FEN — بدون مشاركة");
+        root.addView(manualHint);
+        manualHint.setOnClickListener(v->{
+            if(!offlineOnly.isChecked()){
+                externalStatus.setText("أكد أن المباراة ضد الكمبيوتر فقط أولاً");
+                return;
+            }
+            if(OverlayAccessibility.active==null){
+                externalStatus.setText("خدمة الوصول غير متصلة؛ فعّلها ثم اختبر التأشير");
+                refreshPermissionDiagnostics();
+                return;
+            }
+            if(ExternalController.active!=null){
+                externalStatus.setText("أوقف الجلسة الحالية أولاً عبر زر إيقاف المساعد الخارجي");
+                return;
+            }
+            String fen=externalFen.getText().toString().trim();
+            if(fen.isEmpty())fen=new Board().getFen();
+            try{
+                Board check=new Board();
+                check.loadFromFen(fen);
+                String placement=fen.split(" ")[0];
+                long wk=placement.chars().filter(ch->ch=='K').count();
+                long bk=placement.chars().filter(ch->ch=='k').count();
+                if(wk!=1||bk!=1)throw new IllegalArgumentException("الـ FEN يحتاج ملكاً واحداً لكل لون");
+                if((check.getSideToMove()==Side.WHITE)!=externalWhite){
+                    externalStatus.setText("الدور في FEN لا يطابق لون البوت. غيّر اللون أو FEN ثم جرّب");
+                    return;
+                }
+                ExternalController.beginManualHints(this,externalWhite,fen,whiteAtBottomExternal,thinkMsExternal);
+                externalStatus.setText("تم تشغيل إرشاد Stockfish. افتح لعبة الكمبيوتر ثم عاير الرقعة من الشريط العائم؛ لن تُنفذ أي لمسات تلقائية.");
+            }catch(Exception ex){
+                externalStatus.setText("تعذر قراءة FEN: "+ex.getMessage());
+            }
+        });
         Button enable = new Button(this);
         enable.setText("1 — تفعيل خدمة اللمس والتأشير");
         enable.setAllCaps(false);
