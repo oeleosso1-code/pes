@@ -39,7 +39,7 @@ public final class ExternalCaptureService extends Service {
     private HandlerThread thread;
     private Handler processing;
     private int width, height, density;
-    private boolean stopping;
+    private volatile boolean stopping;
     private long lastFrame;
     private long lastWarning;
     private long frameCounter, lastRateTime;
@@ -52,6 +52,10 @@ public final class ExternalCaptureService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        if(projection!=null){
+            ExternalController.notifyStatus("هناك مشاركة شاشة فعالة. اضغط إنهاء قبل إنشاء جلسة جديدة");
+            return START_NOT_STICKY;
+        }
         Notification n = new Notification.Builder(this,"chess_capture_v3")
             .setContentTitle("Chess AI Auto Player 3")
             .setContentText("مشاركة الشاشة مفعلة — لإيقافها استخدم الشريط العائم")
@@ -145,6 +149,7 @@ public final class ExternalCaptureService extends Service {
         Image frame=null;
         Bitmap padded=null,cropped=null;
         try {
+            if(source!=reader || stopping)return;
             frame=source.acquireLatestImage();
             if (frame==null || stopping) return;
             long now=SystemClock.elapsedRealtime();
@@ -172,7 +177,7 @@ public final class ExternalCaptureService extends Service {
             if(c!=null) {
                 c.onFrame(cropped);
                 frameCounter++;
-                if(now-lastRateTime>4000) {
+                if(now-lastRateTime>2000) {
                     double fps=frameCounter*1000.0/(now-lastRateTime);
                     c.onFrameRate(fps);
                     frameCounter=0;lastRateTime=now;
