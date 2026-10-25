@@ -107,6 +107,8 @@ public final class MainActivity extends Activity {
         colorButton.setOnClickListener(v -> { botWhite = !botWhite; reset(null); });
         levelButton.setOnClickListener(v -> { levelIndex = (levelIndex + 1) % levels.length; reset(null); });
 
+        addExternalControls(root);
+
         root.addView(text("وضعية مخصصة (FEN) — اختيارية", 14, true));
         fenInput = new EditText(this);
         fenInput.setHint("الصق FEN إذا أردت بدء مباراة من وضعية محددة");
@@ -202,6 +204,101 @@ public final class MainActivity extends Activity {
                 });
             }
         });
+    }
+
+
+    // External modes deliberately require user consent for both accessibility and
+    // screen capture. These modes are intended for offline computer games only.
+    private boolean externalAuto = true;
+    private boolean externalWhite = true;
+    private android.widget.CheckBox offlineOnly;
+    private TextView externalStatus;
+
+    private void addExternalControls(LinearLayout root) {
+        root.addView(text("♟ التحكم بألعاب الشطرنج الخارجية (ضد الكمبيوتر فقط)", 19, true));
+        root.addView(text("اختر بين اللمس التلقائي أو تأشير القطعة بالأسود ومربع الهدف بالأخضر. ابدأ مباراة جديدة بوضع البداية القياسي.", 13, false));
+        LinearLayout row = new LinearLayout(this);
+        root.addView(row);
+        Button mode = button("الوضع: لمس تلقائي", row);
+        Button color = button("اللون: الأبيض", row);
+        mode.setOnClickListener(v -> {
+            externalAuto = !externalAuto;
+            mode.setText(externalAuto ? "الوضع: لمس تلقائي" : "الوضع: إرشاد ملوّن");
+        });
+        color.setOnClickListener(v -> {
+            externalWhite = !externalWhite;
+            color.setText(externalWhite ? "اللون: الأبيض" : "اللون: الأسود");
+        });
+        offlineOnly = new android.widget.CheckBox(this);
+        offlineOnly.setText("أؤكد أن المباراة ضد كمبيوتر فقط، وليست ضد لاعب بشري أو عبر الإنترنت");
+        offlineOnly.setTextSize(13);
+        root.addView(offlineOnly);
+        Button enable = new Button(this);
+        enable.setText("1 — تفعيل خدمة اللمس والتأشير");
+        enable.setAllCaps(false);
+        root.addView(enable);
+        enable.setOnClickListener(v -> {
+            startActivity(new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        });
+        Button share = new Button(this);
+        share.setText("2 — مشاركة الشاشة وتشغيل المساعد الخارجي");
+        share.setAllCaps(false);
+        root.addView(share);
+        share.setOnClickListener(v -> {
+            if (!offlineOnly.isChecked()) {
+                externalStatus.setText("يجب تأكيد نمط الكمبيوتر أولاً.");
+                return;
+            }
+            if (OverlayAccessibility.active == null) {
+                externalStatus.setText("فعّل Chess AI Auto Player ضمن إعدادات إمكانية الوصول ثم ارجع هنا.");
+                startActivity(new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                return;
+            }
+            try {
+                android.media.projection.MediaProjectionManager manager =
+                    (android.media.projection.MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+                externalStatus.setText("وافق على مشاركة الشاشة بالكامل، ثم افتح لعبة الشطرنج.");
+                startActivityForResult(manager.createScreenCaptureIntent(), 991);
+            } catch (Exception e) {
+                externalStatus.setText("تعذر طلب المشاركة: " + e.getMessage());
+            }
+        });
+        externalStatus = text("بعد بدء المشاركة افتح اللعبة واضغط «تحديد الرقعة» من الشريط العائم.", 13, false);
+        root.addView(externalStatus);
+        Button end = new Button(this);
+        end.setAllCaps(false);
+        end.setText("إيقاف المساعد الخارجي");
+        root.addView(end);
+        end.setOnClickListener(v -> {
+            if (ExternalController.active != null) ExternalController.active.stop();
+            stopService(new android.content.Intent(this,ExternalCaptureService.class));
+            externalStatus.setText("تم إيقاف المساعد الخارجي");
+        });
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != 991) return;
+        if (resultCode != RESULT_OK || data == null) {
+            if (externalStatus != null) externalStatus.setText("تم إلغاء مشاركة الشاشة");
+            return;
+        }
+        ExternalController.begin(this, externalWhite, externalAuto);
+        android.content.Intent capture = new android.content.Intent(this, ExternalCaptureService.class);
+        capture.putExtra(ExternalCaptureService.EXTRA_RESULT, resultCode);
+        capture.putExtra(ExternalCaptureService.EXTRA_DATA, data);
+        try {
+            startForegroundService(capture);
+            if (externalStatus != null) externalStatus.setText("المشاركة بدأت: افتح لعبة كمبيوتر جديدة ثم عاير الرقعة.");
+            ui.postDelayed(() -> {
+                android.content.Intent home = new android.content.Intent(android.content.Intent.ACTION_MAIN);
+                home.addCategory(android.content.Intent.CATEGORY_HOME);
+                home.setFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(home);
+            }, 700);
+        } catch (Exception e) {
+            if (externalStatus != null) externalStatus.setText("فشل بدء المشاركة: " + e.getMessage());
+        }
     }
 
     @Override protected void onDestroy() {

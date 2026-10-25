@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="chess_accessibility_description">تنفيذ النقلات على رقعة شطرنج خارجية بموافقة المستخدم في مباريات الكمبيوتر فقط، وإظهار مربعات إرشادية، مع إمكانية الإيقاف من الواجهة العائمة.</string>
+</resources>

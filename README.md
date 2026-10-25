@@ -1,27 +1,23 @@
-# Chess AI Auto Player ♟️
+# Chess AI Auto Player — External Modes v2 (experimental)
 
-Android app: **fully automatic engine-versus-engine chess**. The strong bot uses **Stockfish 19** to play every move for the player, while a weaker Stockfish computer plays the opposing color. No server, internet connection or root permission is needed **at runtime**.
+Two user-selectable modes for games against a **computer** in external Android chess apps:
+* **Automatic tap mode**: Stockfish calculates legal moves and AccessibilityService taps the piece and destination.
+* **Colored guidance mode**: black border around the piece to move and green border around the target; the user performs the move.
 
-## Current scope
-- ✅ Autonomous bot playing WHITE or BLACK against an internal computer opponent.
-- ✅ Real Stockfish 19 (compiled for **arm64-v8a** during GitHub Actions).
-- ✅ FEN position loading, legal moves validated by chesslib, visible board, Start/Pause/New Game.
-- ✅ Opponent difficulty (3 Elo targets). Note Stockfish Elo calibration is approximate.
-- ❌ This release **does not** control other chess applications or automatically recognize external screens. It is NOT a general-purpose AccessibilityService bot. We explicitly avoid claiming that unimplemented feature.
-- ❌ APK has not been tested on a physical device until a human installs it. GitHub Actions build result should be verified.
+Both use explicit Android screen capture approval (MediaProjection), manually calibrated visible board coordinates and an on-device 64-square image-difference tracker. No screenshots are sent anywhere; internet is unnecessary after installation.
 
-## Build APK on GitHub
-Go to **Actions** > **Chess AI Android APK** > the successful run > **Artifacts** > `chess-ai-auto-player-apk`. Download its ZIP and extract `app-debug.apk`, then install on an ARM64 Android phone. The workflow triggers on pushes to `chess-ai-auto-player`.
+**Scope / honest limitations**
+- Requires **starting a new standard chess game** and calibrating the rectangle (touch its top-left then bottom-right corners) before any pieces move. Unsupported custom FEN and unsupported chess variants.
+- Visual tracker is *experimental*: compares changed square center pixels against board legal move candidates. It is not a trained piece classifier or automatic universal recognition. Dynamic highlights, themes, backgrounds, reorientation, transitions, promotional selection dialogs, partial screen sharing, board movement or landscape rotation can prevent tracking. Do not assume it works with every Play Store chess app.
+- Auto touch is two discrete taps. Apps requiring drag, confirmation, gestures or protected screens may not work. If the screen moves, stop and recalibrate.
+- Requires manual accessibility service enablement; one MediaProjection approval per session; an ongoing visible foreground notification; external capture only in offline games. **Never use against online humans.** The app cannot independently verify opponent type; explicit user confirmation is required.
+- Overlay stop button immediately ends the capture service. Disable the Accessibility permission in Settings when no longer needed.
+- Internal engine-vs-engine mode from v1 is retained.
+- Android 8+ min supported for built-in mode; screen sharing externally is tested only by CI compile, not on all Android versions. ARM64.
+- The build must pass GitHub Actions; a successful build alone is **not a physical phone integration test**.
 
-Requirements: Android 8+ (API26), 64-bit ARM CPU. Android SDK/NDK are installed by CI. Official Stockfish source tag: `sf_19`.
+## APK
+GitHub Actions run on branch `chess-ai-external-v2`. On successful run, find artifact `chess-ai-external-v2-apk` and unzip `app-debug.apk`.
 
-### How it works
-`StockfishEngine` runs the compiled UCI executable from Android nativeLibraryDir. `MainActivity` alternates engine requests between bot (full strength, more thinking time) and computer (limited strength) and verifies each move with chesslib. `ChessBoardView` renders the actual position.
-
-### Build from source locally
-With Android SDK and Gradle 8.11.1, first cross-compile Stockfish with Android NDK 27c (`ARCH=armv8 COMP=ndk`), copy to `app/src/main/jniLibs/arm64-v8a/libstockfish.so`, then run `gradle :app:assembleDebug`.
-
-## Licenses
-The app is GPL-3.0-or-later; Stockfish is GPL-3.0, and its GPL COPYING is packaged in the APK under `assets/Stockfish-GPLv3.txt`. Chesslib: Apache 2.0. Stockfish source: https://github.com/official-stockfish/Stockfish — chesslib: https://github.com/bhlangonijr/chesslib .
-
-**Safety of claims:** A completed Gradle build verifies APK compilation; actual gameplay and execution on a specific phone must still be verified there.
+## License
+GPL-3.0-or-later. Official Stockfish 19 compiled from source in CI, GPL source https://github.com/official-stockfish/Stockfish . chesslib licensed Apache-2.0.
