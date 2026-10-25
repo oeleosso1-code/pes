@@ -8,6 +8,8 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.RectF;
+import android.graphics.Rect;
+import android.util.DisplayMetrics;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
@@ -33,6 +35,8 @@ public final class OverlayAccessibility extends AccessibilityService {
     private RectF bounds;
     private boolean whiteBottom = true;
     private boolean attached;
+    private boolean attaching;
+    private String lastOverlayError="";
 
     @Override protected void onServiceConnected() {
         super.onServiceConnected();
@@ -59,8 +63,9 @@ public final class OverlayAccessibility extends AccessibilityService {
 
     void attach() {
         main.post(() -> {
-            if (attached || wm == null) return;
-            attached = true;
+            if (attached || attaching || wm == null) return;
+            attaching=true;
+            try {
             boardMarkers = new View(this) {
                 final Paint pen = new Paint(Paint.ANTI_ALIAS_FLAG);
                 @Override protected void onDraw(Canvas canvas) {
@@ -142,6 +147,58 @@ public final class OverlayAccessibility extends AccessibilityService {
             p.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
             p.y = dp(40);
             wm.addView(panel,p);
+            attached=true;
+            lastOverlayError="";
+            } catch (Exception failure) {
+                // Never report an overlay as attached when WindowManager rejected it.
+                lastOverlayError=failure.getClass().getSimpleName()+": "+failure.getMessage();
+                android.util.Log.e("ChessOverlay","Cannot create accessibility overlay",failure);
+                try {if(panel!=null && panel.isAttachedToWindow())wm.removeView(panel);}catch(Exception ignored){}
+                try {if(boardMarkers!=null && boardMarkers.isAttachedToWindow())wm.removeView(boardMarkers);}catch(Exception ignored){}
+                panel=null;boardMarkers=null;status=null;performance=null;
+                attached=false;
+            } finally { attaching=false; }
+        });
+    }
+
+    public void showDiagnosticMarkers() {
+        attach();
+        main.postDelayed(() -> {
+            if(!attached) {
+                android.util.Log.e("ChessOverlay","Diagnostic overlay unavailable: "+lastOverlayError);
+                return;
+            }
+            // Draw a test pair WITHOUT making a chess decision or sending gestures.
+            DisplayMetrics dm=getResources().getDisplayMetrics();
+            float side=Math.min(dm.widthPixels*.68f,dm.heightPixels*.48f);
+            RectF example=new RectF((dm.widthPixels-side)/2f,(dm.heightPixels-side)/2f,
+                (dm.widthPixels+side)/2f,(dm.heightPixels+side)/2f);
+            showMove("e2","e4",example,true);
+            setStatus("اختبار رسومي: أسود e2 وأخضر e4 (ليس نقلة حقيقية)");
+        },200);
+    }
+
+    public String overlayDiagnostics() {
+        return attached ? "لوحة إمكانية الوصول معروضة" :
+            (lastOverlayError.isEmpty() ? "لم تُعرض اللوحة بعد" : "تعذرت اللوحة: "+lastOverlayError);
+    }
+
+    public void testTapOnOwnApp(float x,float y) {
+        main.post(() -> {
+            if(!attached)attach();
+            Path path=new Path();
+            path.moveTo(x,y);
+            GestureDescription g=new GestureDescription.Builder()
+                .addStroke(new GestureDescription.StrokeDescription(path,0,90)).build();
+            boolean sent=dispatchGesture(g,new GestureResultCallback() {
+                @Override public void onCompleted(GestureDescription d) {
+                    setStatus("تم إرسال لمسة تجريبية. تحقّق من استجابة الزر داخل التطبيق.");
+                }
+                @Override public void onCancelled(GestureDescription d) {
+                    setStatus("Android ألغى اللمسة التجريبية. راجع إذن إمكانية الوصول.");
+                }
+            },main);
+            if(!sent)setStatus("رفض Android إرسال اللمسة التجريبية.");
         });
     }
 
