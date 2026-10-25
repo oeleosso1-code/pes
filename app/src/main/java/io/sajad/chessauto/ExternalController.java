@@ -3,6 +3,7 @@ package io.sajad.chessauto;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.RectF;
+import android.view.WindowManager;
 import android.os.Handler;
 import android.os.Looper;
 import com.github.bhlangonijr.chesslib.Board;
@@ -269,7 +270,7 @@ public final class ExternalController {
             candidateRepeats = 0;
             proposed = null;
             if (OverlayAccessibility.active != null)
-                OverlayAccessibility.active.showMove(null, null, bounds, whiteBottom);
+                OverlayAccessibility.active.showMove(null, null, touchBounds, whiteBottom);
             notifyStatus("تم التعرف على النقلة: " + uci);
             maybeThink();
         } catch (Exception e) {
