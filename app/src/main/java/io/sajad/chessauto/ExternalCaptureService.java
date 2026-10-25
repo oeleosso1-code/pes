@@ -164,9 +164,14 @@ public final class ExternalCaptureService extends Service {
             padded.copyPixelsFromBuffer(bytes);
             cropped=Bitmap.createBitmap(padded,0,0,w,h);
             // Detect evidently black/protected capture, never act on it.
-            int color=cropped.getPixel(w/2,h/2);
-            int other=cropped.getPixel(w/4,h/3);
-            if ((color&0xffffff)==0 && (other&0xffffff)==0) {
+            int darkCount=0;
+            // Multiple samples instead of two black pixels: dark themes are not failed capture.
+            for(int iy=1;iy<=4;iy++)for(int ix=1;ix<=4;ix++) {
+                int rgb=cropped.getPixel(ix*w/5,iy*h/5);
+                if(((rgb>>16)&255)<4 && ((rgb>>8)&255)<4 && (rgb&255)<4)
+                    darkCount++;
+            }
+            if(darkCount>=15) {
                 if (now-lastWarning>3000) {
                     ExternalController.notifyStatus("الصورة سوداء أو محمية؛ أوقف التحليل وافحص إذن المشاركة");
                     lastWarning=now;
