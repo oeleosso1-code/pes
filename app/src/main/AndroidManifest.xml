@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
     <application
-        android:label="Chess AI 3 Repair"
+        android:label="Chess AI 3.3 Fix"
         android:supportsRtl="true"
         android:allowBackup="false"
         android:theme="@android:style/Theme.Material.NoActionBar">
@@ -17,7 +17,7 @@
         <service android:name=".ExternalCaptureService" android:exported="false"
             android:foregroundServiceType="mediaProjection"/>
         <service android:name=".OverlayAccessibility"
-            android:label="Chess AI 3 Repair - اللمس والتأشير"
+            android:label="Chess AI 3.3 Fix - اللمس والتأشير"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true">
             <intent-filter>
