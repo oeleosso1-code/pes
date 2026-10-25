@@ -1,48 +1,38 @@
-# Chess AI Auto Player 3.2 — Accessibility & Capture Diagnostics
+# Chess AI 3.3 — Functional FEN Guidance Fallback (Android ARM64)
 
-## User-visible fixes
-- Independently test whether Android connected `OverlayAccessibility`.
-- Button **اختبار التأشير الأسود والأخضر** draws a black outlined e2 and green outlined e4 on a demo board region without relying on MediaProjection/Stockfish.
-- Button **اختبار اللمس** dispatches an actual gesture onto an in-app button. The target must change to "استقبل التطبيق اللمسة الفعلية" as proof of tap delivery.
-- A diagnostic status in the Arabic UI shows whether the accessibility service is enabled and connected, and links to Android app details for restricted-setting controls when present.
-- Overlay installation catches `WindowManager.addView` exceptions, displays an error, and never leaves a stuck `attached` flag.
-- Sequential callback-based tap→tap improves compatibility with games that ignore two strokes in a single gesture.
-- Screen sharing uses a fresh Android consent and avoids reusing a projection session; frame FPS is reported in the overlay.
-- No longer jumps immediately to Home after consent; the user can see errors before opening the external chess app.
-- Capture-frame heartbeat/FPS and last capture error visible inside the Arabic app, even when the overlay has stopped.
-- Share a text-only diagnostic report directly from the app (no screenshot or screen data included).
-- Internal chess mode records a real UCI move list and lets the user share it as text; it is NOT presented as PGN/SAN.
-- En passant visual detection accounts for the third changing square before checking candidate legality.
-- Dark-themed game scenes are not automatically mistaken for black/protected captures just because two sample pixels are black.
-- Full-display capture resize, overlay outline markers, separate capture and touch rectangles, manual orientation choice, Stockfish 19, tap/drag, safe stop are retained.
-- Separate app ID `io.sajad.chessauto.v3.repair2`: old working versions remain installed.
+## Why this build exists
+The user reported **all** external chess features as nonfunctional. In earlier versions both guidance and automatic gestures depended on a fragile visual occupancy gate. This build provides a **genuinely separate Stockfish analysis and overlay guidance path** requiring NO MediaProjection, so capture and chess inference are no longer prerequisites for seeing a calculated chess hint.
 
-## Required honest limitations
-The external game mode still uses **occupied versus empty squares**, not a trained 13-class piece classifier. It is only eligible to act after a strict visual check of the known starting board/FEN. It may refuse to move on various themes. A screenshot of an arbitrary midgame cannot always recover complete castling/en passant history. Promotion popup automation is not implemented: use manual hints. Debug APK build success is **not** a proof of successful on-device gesture or MediaProjection handling.
+### New working code paths (compile verification still required)
+1. Open external screen, enable Android Accessibility as usual; make sure its service is actually connected.
+2. Confirm game is only versus offline CPU.
+3. Select the side whose turn it is, board orientation and thinking time.
+4. Enter exact FEN for the current position, or leave blank to use the standard starting position.
+5. Tap **♟ إرشاد Stockfish من FEN — بدون مشاركة**.
+6. Open an offline chess game in another app, tap **معايرة** in the floating bar, and select full-board top-left/bottom-right.
+7. Stockfish 19 computes a *legal candidate* from the supplied FEN, then the accessibility overlay attempts to draw the black source-square outline and green destination-square outline.
+8. This FEN is supplied by the user. The screenshot is **NOT** checked in this mode. Check source/target visually and move the piece yourself. For the next position, end the session, return to this app, update the FEN and start another hint.
 
-## Setup and troubleshooting
-1. Install the `app-debug.apk` from the successful `chess-ai-v3-repair-apk` GitHub Actions artifact.
-2. Open **Chess AI 3.2 Repair → مشاركة الشاشة**.
-3. Tap **تفعيل خدمة اللمس والتأشير**, then enable service labeled **Chess AI 3.2 Repair - اللمس والتأشير** in Android Accessibility settings. If settings say `Restricted setting` for a sideloaded app on Android 13+, open the OS app details and review `Allow restricted settings` only if you trust the installed package. Do not bypass OS restrictions.
-4. Tap **فحص خدمة إمكانية الوصول** and verify connected.
-5. Tap **اختبار التأشير الأسود والأخضر** and verify overlay panel plus two outlined test squares. This test does not validate chess vision.
-6. Tap **نفّذ لمسة اختبار** while the test target is visible; its caption changes when an actual accessibility tap is received. This is the only test that validates gesture dispatch independently.
-7. Select guidance first, confirm playing ONLY against a computer, grant full-display screen sharing, open a NEW game from the standard starting position, and tap overlay **معايرة** at two corners. Verify hints before turning on auto.
-8. If marker test works but chess hints do not, read the overlay's FEN/occupancy message. If FPS reads zero, inspect capture permissions. A protected window cannot be captured.
-9. If the service disconnects after installing/restarting, toggle the Accessibility service off/on from Android settings.
+**The manual FEN fallback cannot play a match automatically, detect a move, or validate a user's FEN against the external board. Automatic external moves are explicitly DISABLED in this mode.** This constraint prevents blind gestures when camera vision is not actually working.
 
-## Source and licensing
-See the repository branch `chess-ai-v3-repair`. Stockfish 19 sources: https://github.com/official-stockfish/Stockfish/tree/sf_19 (GPLv3). No screen frames are uploaded to the Internet.
+## Other improvements retained from v3.2
+- Real test for Android Accessibility connection and display of latest overlay error;
+- Explicit overlay test and real in-app test target for accessibility touch dispatch;
+- Screen-capture health report, measured FPS, exportable text diagnostics (no screenshots);
+- Shared screen-size and gesture mapping with separate calibration and capture coordinates;
+- Capture session resize behavior, full-display request for Android 14+, clear stop controls;
+- User-selectable orientation, tap/drag methods, Stockfish time;
+- Internal engine-vs-engine mode, exportable *UCI* move list;
+- En passant third-square change candidate and constrained move verification.
+- Package ID `io.sajad.chessauto.v33fallback` is independent of prior experimental builds.
 
-**Release status:** Compile-tested debug build pending physical-device end-to-end validation, not a certified stable production release.
+## What this DOES NOT do
+It does **not** implement a trained chess-piece classifier, reliable live recognition of arbitrary chess boards, general 3D board support, Android-wide automation in every chess app, auto promotion, or a validated hands-free game versus a computer.
 
+**Build compilation success is not on-device proof.** The user will need to run the overlay self-test and new manual-FEN hint flow on their physical Android phone. Avoid promising full screen reading or gestures until actual field tests pass.
 
-## About the user's 100 suggestions
-The shipped platform remains **Android**, not Windows/Linux: `mss`, `PyAutoGUI`, `pynput`, `PyQt`, and `PyInstaller` are desktop Python tools and are NOT bundled into the Android APK. Android uses `MediaProjection` for consent-based screen capture, `TYPE_ACCESSIBILITY_OVERLAY` for guided hints, `AccessibilityService.dispatchGesture()` for permissioned touches, Java for app logic, and a native ARM64 build of Stockfish 19 via UCI.
+## Technical notes
+Android native: Java, Android MediaProjection, TYPE_ACCESSIBILITY_OVERLAY, AccessibilityService.dispatchGesture, Stockfish 19 UCI process. The desktop-specific suggestions for mss, PyQt, PyAutoGUI and PyInstaller do not belong to an Android APK. No screenshots are uploaded to servers. Offline CPU games only; not suitable for play against humans.
 
-Implemented now: separate capture/vision/engine/gesture functionality; human-readable diagnostics; independent overlay self-test; independent in-app touch test; board 8x8 coordinates and orientation setting; engine subprocess; strict legal move validation; capture resize; tap/drag; interruption/pause; frame stability check; conservative en passant candidate tracking; internal UCI history; user-approved offline external play. The app intentionally rejects uncertain states.
-
-**Not implemented and not claimed**: automatic 13-class piece classifier (needs model/data/evaluation); arbitrary-midgame recovery; a universal automatic ROI locator; robust Chess960; native speech synthesis; true MultiPV evaluation bar; production persistent APK signing; PGN in SAN; full automated promotion dialogs; physical-device validation; <200ms guaranteed end-to-end latency, 60 FPS guarantee, or 99.9% guaranteed accuracy. Random "human-looking" mouse behavior and premoves are NOT provided; they add unreliability and are unnecessary for offline computer games.
-
-## Diagnostic support
-Before reporting a bug, use **فحص خدمة إمكانية الوصول**, then **اختبار التأشير الأسود والأخضر**, then **نفّذ لمسة اختبار**, and finally **فحص حالة التقاط الشاشة والإطارات** after consenting to full-display sharing. The **مشاركة تقرير فحص الصلاحيات** button exports the latest accessibility, overlay, and capture statuses as plain text. No screenshots are included in the report; inspect the text before sharing it.
+## APK
+GitHub Actions on `chess-ai-v3-functional-fallback`, artifact `chess-ai-v3-functional-fallback-apk`, APK `app-debug.apk`. Requires ARM64 Android 8+, subject to manufacturer Accessibility restrictions. GPLv3 source and dependencies retained.
