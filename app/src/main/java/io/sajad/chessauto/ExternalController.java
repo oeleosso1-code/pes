@@ -40,7 +40,6 @@ public final class ExternalController {
     private boolean positionVerified = false;
     private int framesSinceCheck;
     private long lastWarningTime;
-    private boolean awaitingAcknowledgement;
 
     private ExternalController(Context c, boolean white, boolean auto, String positionFen) {
         context = c.getApplicationContext();
@@ -102,7 +101,6 @@ public final class ExternalController {
         lastCandidate = null;
         candidateRepeats = 0;
         lastAutoAction = 0;
-        awaitingAcknowledgement = false;
         if (OverlayAccessibility.active != null) OverlayAccessibility.active.showMove(null, null, bounds, whiteBottom);
         notifyStatus(requestedFen.isEmpty()
             ? "إذا المباراة بدأت، ارجع وابدأ مباراة جديدة. لا نقدم نقلة قبل فحص البداية"
@@ -159,7 +157,12 @@ public final class ExternalController {
             if (count > 9) {
                 lastCandidate = null;
                 candidateRepeats = 0;
-                notifyStatus("تعذر متابعة تغيّر القطع؛ توقف التأشير. أعد ضبط المباراة والرقعة");
+                positionVerified = false;
+                proposed = null;
+                reference = null;
+                if (OverlayAccessibility.active != null)
+                    OverlayAccessibility.active.showMove(null,null,bounds,whiteBottom);
+                notifyStatus("فُقد التزامن. توقف اللمس والتأشير حتى تتطابق الرقعة مجدداً");
                 return;
             }
             Move move = detect(board.legalMoves(), changes);
@@ -181,6 +184,17 @@ public final class ExternalController {
             }
             if (++candidateRepeats < 3) return;
             if (!board.isMoveLegal(move, true)) return;
+            Board predicted = new Board();
+            predicted.loadFromFen(board.getFen());
+            if (!predicted.doMove(move, true)) return;
+            // A pixel-change pattern alone is not sufficient. Reject a candidate
+            // whose resulting occupancy doesn't match the actual screenshot.
+            if (!verifyBoardOccupancy(image, bounds, predicted.getFen())) {
+                lastCandidate = null;
+                candidateRepeats = 0;
+                notifyStatus("لم نتأكد من النقلة. لن نحرك قطعة حتى تتحقق المطابقة");
+                return;
+            }
             board.doMove(move);
             reference = current;
             lastCandidate = null;
@@ -298,8 +312,8 @@ public final class ExternalController {
         int expectedPop = 0, expectedEmpty = 0;
         for (int r=0;r<8;r++) for (int c=0;c<8;c++)
             if (expected[r][c]) expectedPop++; else expectedEmpty++;
-        return correct >= 59 &&
-            populated >= expectedPop - 2 && emptyCorrect >= expectedEmpty - 2;
+        return correct >= 63 &&
+            populated >= expectedPop - 1 && emptyCorrect >= expectedEmpty - 1;
     }
 
     private float measureOccupancy(Bitmap image, RectF boardRect, int row, int col) {

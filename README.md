@@ -31,7 +31,7 @@ Package ID: `io.sajad.chessauto.external`. It installs alongside v1 to avoid con
 The earlier v2 wrongly assumed that any captured board was the normal start. If a game
 was already in progress it could draw move indicators on the WRONG squares.
 **v2.1 now blocks all outside chess suggestions and automatic gestures until visible
-square occupancy is consistent with the engine position (at least 59 of 64 squares).**
+square occupancy is consistent with the engine position (at least 63 of 64 squares).**
 The check uses foreground frame pixels and is *not a full visual chess position reader*.
 
 **Usage:** To use an existing game, paste the game's exact FEN into the optional
