@@ -21,3 +21,6 @@ GitHub Actions run on branch `chess-ai-external-v2`. On successful run, find art
 
 ## License
 GPL-3.0-or-later. Official Stockfish 19 compiled from source in CI, GPL source https://github.com/official-stockfish/Stockfish . chesslib licensed Apache-2.0.
+
+## Install separately from v1
+Package ID: `io.sajad.chessauto.external`. It installs alongside v1 to avoid conflicts with runner-generated debug signing keys. The original working app is preserved.

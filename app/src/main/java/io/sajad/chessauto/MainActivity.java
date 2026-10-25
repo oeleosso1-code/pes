@@ -283,6 +283,7 @@ public final class MainActivity extends Activity {
             if (externalStatus != null) externalStatus.setText("تم إلغاء مشاركة الشاشة");
             return;
         }
+        running = false; generation++; render();
         ExternalController.begin(this, externalWhite, externalAuto);
         android.content.Intent capture = new android.content.Intent(this, ExternalCaptureService.class);
         capture.putExtra(ExternalCaptureService.EXTRA_RESULT, resultCode);
