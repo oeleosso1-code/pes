@@ -1,50 +1,37 @@
-# Chess AI Auto Player — External Modes v2 (experimental)
+# Chess AI Auto Player 3.0 beta
 
-Two user-selectable modes for games against a **computer** in external Android chess apps:
-* **Automatic tap mode**: Stockfish calculates legal moves and AccessibilityService taps the piece and destination.
-* **Colored guidance mode**: black border around the piece to move and green border around the target; the user performs the move.
+Android ARM64 app for **offline computer-opponent chess only**. The original v1 and v2.1 branches remain unchanged. This beta has a separate package ID `io.sajad.chessauto.v3beta`, so it installs alongside earlier builds.
 
-Both use explicit Android screen capture approval (MediaProjection), manually calibrated visible board coordinates and an on-device 64-square image-difference tracker. No screenshots are sent anywhere; internet is unnecessary after installation.
+## Available now
 
-**Scope / honest limitations**
-- Requires **starting a new standard chess game** and calibrating the rectangle (touch its top-left then bottom-right corners) before any pieces move. Unsupported custom FEN and unsupported chess variants.
-- Visual tracker is *experimental*: compares changed square center pixels against board legal move candidates. It is not a trained piece classifier or automatic universal recognition. Dynamic highlights, themes, backgrounds, reorientation, transitions, promotional selection dialogs, partial screen sharing, board movement or landscape rotation can prevent tracking. Do not assume it works with every Play Store chess app.
-- Auto touch is two discrete taps. Apps requiring drag, confirmation, gestures or protected screens may not work. If the screen moves, stop and recalibrate.
-- Requires manual accessibility service enablement; one MediaProjection approval per session; an ongoing visible foreground notification; external capture only in offline games. **Never use against online humans.** The app cannot independently verify opponent type; explicit user confirmation is required.
-- Overlay stop button immediately ends the capture service. Disable the Accessibility permission in Settings when no longer needed.
-- Internal engine-vs-engine mode from v1 is retained.
-- Android 8+ min supported for built-in mode; screen sharing externally is tested only by CI compile, not on all Android versions. ARM64.
-- The build must pass GitHub Actions; a successful build alone is **not a physical phone integration test**.
+- Functional dark Arabic dashboard inspired by the supplied visual reference; internal engine-vs-engine board still works.
+- Full-device, **user-approved** MediaProjection capture: on Android 14+ the app explicitly requests the default display, not a cropped single application window.
+- Android 14+ MediaProjection `onCapturedContentResize` updates the existing VirtualDisplay and Surface without reusing the consent token.
+- Captured frames processed off the main UI thread, throttled to a practical ~8 fps; live observed FPS shown on the overlay.
+- Independent board orientation from player's piece color. Separate rectangles for captured image and physical touch, with scale checks to block mismatches.
+- Two distinct offline external modes: color-guided move (user taps) and automatic tap/drag (user explicitly confirms offline match).
+- Pause/resume button and immediate stop in the floating overlay.
+- Choice of Stockfish 19 thinking time: 180 / 350 / 750 / 1250 milliseconds.
+- Visual occupancy consistency gate. If the captured board fails to match the claimed position, the app **must not** automatically move.
 
-## APK
-GitHub Actions run on branch `chess-ai-external-v2`. On successful run, find artifact `chess-ai-external-v2-apk` and unzip `app-debug.apk`.
+## Serious limitations (please read)
+- **NOT** a universal visual chess-piece classifier. Only square occupancy and changed-square tracking are present. The code cannot reliably identify 12 kinds of chess pieces, so do not trust it against unfamiliar themes or arbitrary midgames.
+- If you launch a match halfway through, you must supply an accurate FEN including whose turn, castling and en passant. Otherwise start a NEW standard-position match.
+- For black pieces at bottom, choose the **board orientation** explicitly, separately from bot color.
+- External full-screen MediaProjection may be interrupted by Android/ROM settings or black/protected windows. Try the color guidance mode first and verify every source and destination before enabling taps.
+- Promotion dialogs in external apps are **not** automatically handled: the mode falls back to colored guidance for promotion.
+- Color-guided/automatic modes have NOT been proven against all external Play Store chess apps and have not been tested on the user's handset.
+- Production APK signing is not set up. Every GitHub debug build has an ephemeral key, so build upgrade installation across different workflow runs may fail; this beta uses a new package ID.
+- Fully automatic Accessibility actions may not qualify for Google Play publication. This code is for personal offline experiments, with explicit user consent and a foreground notification.
+- Offline play only: never use it against human opponents or in online games.
 
-## License
-GPL-3.0-or-later. Official Stockfish 19 compiled from source in CI, GPL source https://github.com/official-stockfish/Stockfish . chesslib licensed Apache-2.0.
+## Build
+Branch: `chess-ai-v3-beta`.
+GitHub Actions: **Chess AI Auto Player v3 Beta APK**; successful artifacts named `chess-ai-v3-beta-apk`.
+Download its zip and install `app-debug.apk`. Stockfish 19 (sf_19) builds from source for ARM64 via Android NDK.
 
-## Install separately from v1
-Package ID: `io.sajad.chessauto.external`. It installs alongside v1 to avoid conflicts with runner-generated debug signing keys. The original working app is preserved.
+## Legal
+GPL-3.0-or-later application, bundled Stockfish GPLv3 source available at https://github.com/official-stockfish/Stockfish. chesslib is Apache-2.0. No screen frames are transmitted to an external server by this application.
 
-
-## v2.1 Chess.com desynchronization fix
-
-The earlier v2 wrongly assumed that any captured board was the normal start. If a game
-was already in progress it could draw move indicators on the WRONG squares.
-**v2.1 now blocks all outside chess suggestions and automatic gestures until visible
-square occupancy is consistent with the engine position (at least 63 of 64 squares).**
-The check uses foreground frame pixels and is *not a full visual chess position reader*.
-
-**Usage:** To use an existing game, paste the game's exact FEN into the optional
-external FEN field before approving screen sharing. Otherwise start a NEW match
-from initial placement. Then calibrate the whole board accurately, top-left and
-bottom-right. Black at bottom requires selecting bot color black. If the view
-is mid-game without FEN, the app refuses to move rather than hallucinating a move.
-Color fills the ENTIRE board square (dark = source, green = destination).
-
-**Known limitations:** FEN sync still requires manual input for non-starting games.
-This algorithm cannot distinguish bishop from knight or side from occupancy alone,
-so unusual visually valid but wrong positions remain possible. No on-device
-integration test against Chess.com has been performed.
-
-## Independent debug APK package
-Android ID `io.sajad.chessauto.external.safesync` is installed alongside v1 and v2. Each CI job uses an ephemeral debug signing key; different package IDs avoid Android signature mismatch when trying the experimental fix. Do not treat this as a future update mechanism; a production app will need a persistent protected signing key.
+## Verification
+GitHub compilation is a build check, *not* a hardware end-to-end test. For a release considered stable, physical device testing must validate screen capture, orientation, calibration, moves and special moves.
