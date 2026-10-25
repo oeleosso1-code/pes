@@ -26,7 +26,14 @@ public final class ExternalController {
     private final StockfishEngine engine;
     private Board board = new Board();
     private float[] reference;
-    private RectF bounds;
+    private RectF touchBounds;
+    private RectF captureBounds;
+    private int captureWidth, captureHeight;
+    private int screenWidth, screenHeight;
+    private final int thinkMs;
+    private final boolean dragMode;
+    private boolean paused;
+    private float latestFps;
     private boolean whiteBottom;
     private final boolean botWhite;
     private final boolean automatic;
@@ -41,18 +48,20 @@ public final class ExternalController {
     private int framesSinceCheck;
     private long lastWarningTime;
 
-    private ExternalController(Context c, boolean white, boolean auto, String positionFen) {
+    private ExternalController(Context c, boolean white, boolean auto, String positionFen, boolean whiteAtBottom, int thinkingMs, boolean useDrag) {
         context = c.getApplicationContext();
         engine = new StockfishEngine(context);
         botWhite = white;
         automatic = auto;
-        whiteBottom = white;
+        whiteBottom = whiteAtBottom;
+        thinkMs = thinkingMs;
+        dragMode = useDrag;
         requestedFen = positionFen == null ? "" : positionFen.trim();
     }
 
-    public static void begin(Context context, boolean botWhite, boolean automatic, String positionFen) {
+    public static void begin(Context context, boolean botWhite, boolean automatic, String positionFen, boolean whiteAtBottom, int thinkingMs, boolean useDrag) {
         if (active != null) active.stop();
-        active = new ExternalController(context, botWhite, automatic, positionFen);
+        active = new ExternalController(context, botWhite, automatic, positionFen, whiteAtBottom, thinkingMs, useDrag);
         if (OverlayAccessibility.active != null) OverlayAccessibility.active.attach();
     }
 
@@ -71,13 +80,14 @@ public final class ExternalController {
             notifyStatus("حدد الزاويتين المتقابلتين للرقعة كاملة وبشكل مربع");
             return;
         }
-        bounds = new RectF(rectangle.left, rectangle.top, rectangle.left + d, rectangle.top + d);
+        touchBounds = new RectF(rectangle.left, rectangle.top, rectangle.left + d, rectangle.top + d);
+        captureBounds = null;
         resetPosition();
-        notifyStatus("تم تحديد حدود الرقعة. جاري التحقق من أماكن القطع...");
+        notifyStatus("تم تحديد رقعة اللمس. نتحقق من الإحداثيات الملتقطة...");
     }
 
     public synchronized RectF getBounds() {
-        return bounds == null ? null : new RectF(bounds);
+        return touchBounds == null ? null : new RectF(touchBounds);
     }
 
     public boolean isWhiteBottom() { return whiteBottom; }
@@ -89,7 +99,7 @@ public final class ExternalController {
                 board.loadFromFen(requestedFen);
             } catch (Exception e) {
                 notifyStatus("صيغة FEN غير صحيحة. أعد بدء الجلسة بوضعية صحيحة");
-                bounds = null;
+                touchBounds = null; captureBounds = null;
                 return;
             }
         }
@@ -101,26 +111,84 @@ public final class ExternalController {
         lastCandidate = null;
         candidateRepeats = 0;
         lastAutoAction = 0;
-        if (OverlayAccessibility.active != null) OverlayAccessibility.active.showMove(null, null, bounds, whiteBottom);
+        if (OverlayAccessibility.active != null) OverlayAccessibility.active.showMove(null, null, touchBounds, whiteBottom);
         notifyStatus(requestedFen.isEmpty()
             ? "إذا المباراة بدأت، ارجع وابدأ مباراة جديدة. لا نقدم نقلة قبل فحص البداية"
             : "جار فحص مطابقة القطع مع وضعية FEN المدخلة");
     }
 
+    /** Full-display capture and touch coordinates have distinct rectangles. */
+    public synchronized void onCaptureResized(int w, int h) {
+        captureWidth=w; captureHeight=h;
+        captureBounds=null;
+        positionVerified=false; reference=null; proposed=null;
+        if(touchBounds!=null) {
+            touchBounds=null;
+            if(OverlayAccessibility.active!=null)
+                OverlayAccessibility.active.showMove(null,null,null,whiteBottom);
+        }
+        notifyStatus("تغيّر حجم الشاشة — أعد معايرة الرقعة قبل اللعب");
+    }
+
+    public synchronized void onFrameRate(double fps) {
+        latestFps=(float)fps;
+        if(OverlayAccessibility.active!=null)
+            OverlayAccessibility.active.setPerformanceInfo(String.format(java.util.Locale.US,"التقاط %.1f FPS · Stockfish 19",fps));
+    }
+
+    public synchronized void setPaused(boolean value) {
+        paused=value;
+        if(value) {
+            proposed=null;
+            if(OverlayAccessibility.active!=null)
+                OverlayAccessibility.active.showMove(null,null,touchBounds,whiteBottom);
+        }
+        notifyStatus(value ? "⏸ أوقفت المساعد مؤقتاً" : "▶ استئناف المساعد؛ التحقق من الرقعة");
+    }
+
+    public synchronized boolean isPaused() {return paused;}
+
+    private boolean updateCaptureCoordinates(Bitmap image) {
+        if(touchBounds==null)return false;
+        WindowManager wm=(WindowManager)context.getSystemService(Context.WINDOW_SERVICE);
+        android.graphics.Rect display;
+        if(android.os.Build.VERSION.SDK_INT>=30) {
+            display=wm.getMaximumWindowMetrics().getBounds();
+        }else{
+            android.util.DisplayMetrics metrics=new android.util.DisplayMetrics();
+            wm.getDefaultDisplay().getRealMetrics(metrics);
+            display=new android.graphics.Rect(0,0,metrics.widthPixels,metrics.heightPixels);
+        }
+        screenWidth=display.width();screenHeight=display.height();
+        if(screenWidth<1||screenHeight<1)return false;
+        float sx=(float)image.getWidth()/screenWidth;
+        float sy=(float)image.getHeight()/screenHeight;
+        // Never mix touch screen coordinates with single-app cropped projection.
+        if(Math.abs(sx-sy)>0.04f || sx<0.5f || sx>2f) {
+            if(captureBounds!=null) {
+                captureBounds=null;
+                positionVerified=false;
+                proposed=null;
+            }
+            notifyStatus("إحداثيات التقاط الشاشة لا تطابق الشاشة؛ اختر مشاركة الشاشة كاملة");
+            return false;
+        }
+        captureBounds=new RectF(touchBounds.left*sx,touchBounds.top*sy,
+            touchBounds.right*sx,touchBounds.bottom*sy);
+        return captureBounds.left>=0&&captureBounds.top>=0
+            &&captureBounds.right<=image.getWidth()&&captureBounds.bottom<=image.getHeight();
+    }
+
     public synchronized void onFrame(Bitmap image) {
         try {
-            if (stopped || bounds == null) return;
-            if (image.getWidth() < bounds.right || image.getHeight() < bounds.bottom) {
-                notifyStatus("حجم الشاشة تغير. أعد تحديد الرقعة");
-                bounds = null;
-                return;
-            }
+            if (stopped || paused || touchBounds == null) return;
+            if (!updateCaptureCoordinates(image)) return;
             // Never offer moves or execute gestures from a guessed or stale board.
             // Validate visible occupancy, including orientation, against the exact FEN.
             if (!positionVerified) {
                 if (++framesSinceCheck < 3) return;
                 framesSinceCheck = 0;
-                if (!verifyBoardOccupancy(image, bounds, board.getFen())) {
+                if (!verifyBoardOccupancy(image, captureBounds, board.getFen())) {
                     long now = android.os.SystemClock.elapsedRealtime();
                     if (now - lastWarningTime > 2000) {
                         notifyStatus(requestedFen.isEmpty()
@@ -131,12 +199,12 @@ public final class ExternalController {
                     return;
                 }
                 positionVerified = true;
-                reference = sample(image, bounds);
+                reference = sample(image, captureBounds);
                 notifyStatus("✓ تم التحقق من ترتيب القطع. جاهز لمتابعة المباراة");
                 maybeThink();
                 return;
             }
-            float[] current = sample(image, bounds);
+            float[] current = sample(image, captureBounds);
             if (reference == null) {
                 reference = current;
                 maybeThink();
@@ -161,7 +229,7 @@ public final class ExternalController {
                 proposed = null;
                 reference = null;
                 if (OverlayAccessibility.active != null)
-                    OverlayAccessibility.active.showMove(null,null,bounds,whiteBottom);
+                    OverlayAccessibility.active.showMove(null,null,touchBounds,whiteBottom);
                 notifyStatus("فُقد التزامن. توقف اللمس والتأشير حتى تتطابق الرقعة مجدداً");
                 return;
             }
@@ -189,7 +257,7 @@ public final class ExternalController {
             if (!predicted.doMove(move, true)) return;
             // A pixel-change pattern alone is not sufficient. Reject a candidate
             // whose resulting occupancy doesn't match the actual screenshot.
-            if (!verifyBoardOccupancy(image, bounds, predicted.getFen())) {
+            if (!verifyBoardOccupancy(image, captureBounds, predicted.getFen())) {
                 lastCandidate = null;
                 candidateRepeats = 0;
                 notifyStatus("لم نتأكد من النقلة. لن نحرك قطعة حتى تتحقق المطابقة");
@@ -210,7 +278,7 @@ public final class ExternalController {
     }
 
     private void maybeThink() {
-        if (thinking || proposed != null || stopped || bounds == null || !positionVerified) return;
+        if (thinking || proposed != null || stopped || paused || touchBounds == null || !positionVerified) return;
         if ((board.getSideToMove() == Side.WHITE) != botWhite) {
             notifyStatus("الكمبيوتر يلعب؛ نراقب نقلته...");
             return;
@@ -221,7 +289,7 @@ public final class ExternalController {
         notifyStatus("Stockfish يحلل النقلة...");
         worker.submit(() -> {
             try {
-                String move = engine.bestMove(fen, 650, false, 3000);
+                String move = engine.bestMove(fen, thinkMs, false, 3000);
                 main.post(() -> proposeMove(move, fen));
             } catch (Exception e) {
                 main.post(() -> {
@@ -234,7 +302,7 @@ public final class ExternalController {
 
     private synchronized void proposeMove(String uci, String originalFen) {
         thinking = false;
-        if (stopped || bounds == null || !positionVerified ||
+        if (stopped || paused || touchBounds == null || !positionVerified ||
             !board.getFen().equals(originalFen)) return;
         Move move = new Move(uci, board.getSideToMove());
         if (!board.isMoveLegal(move, true)) {
@@ -245,15 +313,15 @@ public final class ExternalController {
         if (OverlayAccessibility.active != null) {
             OverlayAccessibility.active.showMove(
                 move.getFrom().toString().toLowerCase(),
-                move.getTo().toString().toLowerCase(), bounds, whiteBottom);
+                move.getTo().toString().toLowerCase(), touchBounds, whiteBottom);
         }
-        if (!automatic) {
+        if (!automatic || uci.length()>4) {
             notifyStatus("الإرشاد: الأسود = القطعة، الأخضر = المكان: " + uci);
         } else {
             notifyStatus("تنفيذ تلقائي: " + uci);
             lastAutoAction = System.currentTimeMillis();
             if (OverlayAccessibility.active != null)
-                OverlayAccessibility.active.executeMove(uci, bounds, whiteBottom);
+                OverlayAccessibility.active.executeMove(uci, touchBounds, whiteBottom, dragMode);
             else notifyStatus("خدمة اللمس غير مفعّلة؛ فعّل إمكانية الوصول");
         }
     }
