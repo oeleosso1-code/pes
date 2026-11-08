@@ -31,6 +31,26 @@ validate_host() {
         done
     fi
 }
+# The endpoint used by a publicly reachable relay must not be a private,
+# loopback, link-local, test/documentation, or multicast literal IPv4 address.
+# Hostnames are syntactically validated here; provider/DNS reachability is
+# checked at deployment time, not guessed from the name.
+validate_public_endpoint() {
+    local host="$1" a b c d
+    validate_host "$host" || return 1
+    [[ "$host" =~ ^[0-9.]+$ ]] || return 0
+    IFS=. read -r a b c d <<< "$host"
+    a=$((10#$a)); b=$((10#$b)); c=$((10#$c)); d=$((10#$d))
+    (( a >= 1 && a <= 223 )) || return 1
+    (( a != 10 && a != 127 )) || return 1
+    (( !(a == 100 && b >= 64 && b <= 127) )) || return 1
+    (( !(a == 169 && b == 254) )) || return 1
+    (( !(a == 172 && b >= 16 && b <= 31) )) || return 1
+    (( !(a == 192 && (b == 0 || b == 168)) )) || return 1
+    (( !(a == 198 && (b == 18 || b == 19 || (b == 51 && c == 100))) )) || return 1
+    (( !(a == 203 && b == 0 && c == 113) )) || return 1
+    return 0
+}
 validate_interface() { [[ "$1" =~ ^[a-zA-Z][a-zA-Z0-9_.-]{0,14}$ ]]; }
 validate_region() { [[ "$1" =~ ^[a-z][a-z0-9-]{1,31}$ ]]; }
 validate_name() { [[ "$1" =~ ^[a-zA-Z][a-zA-Z0-9_-]{0,31}$ ]]; }
