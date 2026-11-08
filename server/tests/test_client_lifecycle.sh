@@ -16,7 +16,11 @@ case "$1" in
     genkey) printf '%s\n' 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' ;;
     pubkey) cat >/dev/null; printf '%s\n' 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=' ;;
     show)
-        if [[ "${3:-}" == 'listen-port' ]]; then echo 51820; fi ;;
+        case "${3:-}" in
+            listen-port) echo 51820 ;;
+            latest-handshakes) printf 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB= %s\n' "${MOCK_HANDSHAKE:-0}" ;;
+            transfer) printf 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB= %s %s\n' "${MOCK_RX:-1024}" "${MOCK_TX:-2048}" ;;
+        esac ;;
     set) exit 0 ;;
     *) exit 1 ;;
 esac
@@ -47,7 +51,18 @@ grep -q '# IGRX1-CLIENT START phone1' "$sandbox/wireguard/igrx1.conf"
 if bash "$here/add-client.sh" --name phone1 > /dev/null 2>&1; then
     echo 'Expected duplicate client rejection' >&2; exit 1
 fi
+MOCK_HANDSHAKE="$(date +%s)" bash "$here/verify-live-client.sh" --name phone1 > "$sandbox/check-output"
+grep -q '^PASS:' "$sandbox/check-output"
+if MOCK_HANDSHAKE=0 bash "$here/verify-live-client.sh" --name phone1 >/dev/null 2>&1; then
+    echo 'Missing handshake incorrectly passed' >&2; exit 1
+fi
+if MOCK_HANDSHAKE="$(( $(date +%s) - 600 ))" bash "$here/verify-live-client.sh" --name phone1 >/dev/null 2>&1; then
+    echo 'Stale handshake incorrectly passed' >&2; exit 1
+fi
+if MOCK_HANDSHAKE="$(date +%s)" MOCK_RX=0 bash "$here/verify-live-client.sh" --name phone1 >/dev/null 2>&1; then
+    echo 'Missing bidirectional traffic incorrectly passed' >&2; exit 1
+fi
 bash "$here/remove-client.sh" --name phone1 > /dev/null
 [[ ! -e "$client" && ! -e "$sandbox/etc/allocated/2" ]]
 ! grep -q 'IGRX1-CLIENT' "$sandbox/wireguard/igrx1.conf"
-printf 'PASS: isolated mock client create, duplicate protection, secret output, revoke\n'
+printf 'PASS: isolated mock client create, duplicate protection, secret output, revoke and handshake/traffic diagnosis\n'
