@@ -22,6 +22,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import com.wireguard.config.Config
 import io.iraqgameroute.x1.network.HttpsProbe
+import io.iraqgameroute.x1.analytics.RouteComparison
 import io.iraqgameroute.x1.network.NetworkMonitor
 import io.iraqgameroute.x1.vpn.ConfigPolicy
 import io.iraqgameroute.x1.vpn.WireGuardController
@@ -37,17 +38,18 @@ class MainActivity : ComponentActivity() {
     private val io = Executors.newSingleThreadExecutor { job -> Thread(job, "diagnostics") }
     private val monitor by lazy { NetworkMonitor(this) }
     private val vpn by lazy { (application as IraqRouteApp).vpn }
-    private val profiles = mutableListOf<NamedProfile>()
+    private val profiles get() = (application as IraqRouteApp).profiles
     private lateinit var root: LinearLayout
     private lateinit var networkText: TextView
     private lateinit var vpnText: TextView
     private lateinit var metricsText: TextView
     private lateinit var profileSpinner: Spinner
     private lateinit var checkButton: Button
+    private lateinit var compareButton: Button
+    private lateinit var guardButton: Button
+    private lateinit var comparisonText: TextView
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val cm by lazy { getSystemService(ConnectivityManager::class.java) }
-
-    data class NamedProfile(val title: String, val config: Config)
 
     private val importFile = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@registerForActivityResult
@@ -65,7 +67,7 @@ class MainActivity : ComponentActivity() {
             if (bytes.size > 65536) throw IllegalArgumentException("حجم الملف أكبر من 64KB")
             val config = ConfigPolicy.parseProfile(bytes, packageName)
             val filename = "ملف ${profiles.size + 1}"
-            profiles.add(NamedProfile(filename, config))
+            profiles.add(IraqRouteApp.NamedProfile(filename, config))
             refreshProfiles()
             showVpnText("استُورد $filename في ذاكرة التطبيق فقط، ولم يُفعّل VPN", green)
         } catch (_: Exception) {
@@ -91,6 +93,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshNetwork()
+        updateGuardButton()
         if (networkCallback == null) {
             val cb = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) { runOnUiThread { refreshNetwork() } }
@@ -152,6 +155,14 @@ class MainActivity : ComponentActivity() {
             addView(checkButton)
         }
         root.card {
+            addView(text("⚖️  مقارنة المسار المباشر وVPN", 17, Color.WHITE, true).margin(bottom = 8))
+            addView(text("عند اتصال VPN، نفحص خمس عينات HTTPS لكل مسار. لا تتضمن القياسات Ping كونامي ولا تنتج تغييراً تلقائياً.", 14, pale).margin(bottom = 10))
+            comparisonText = text("لم تُجرَ مقارنة بعد.", 14, pale)
+            addView(comparisonText.margin(bottom = 10))
+            compareButton = button("مقارنة المسارين", green, navy) { compareRoutes() }
+            addView(compareButton)
+        }
+        root.card {
             addView(text("⚙️  إعداد خادم WireGuard", 17, Color.WHITE, true).margin(bottom = 8))
             addView(text("استورد ملف .conf من خادم موثوق. لا يحتوي التطبيق على خادم سحري مجاني.", 14, pale).margin(bottom = 12))
             profileSpinner = Spinner(this@MainActivity)
@@ -162,8 +173,18 @@ class MainActivity : ComponentActivity() {
             addView(button("إيقاف VPN والعودة للمسار المباشر", Color.rgb(119, 67, 68), Color.WHITE) { vpn.disconnect() }.margin(top = 10))
         }
         root.card {
+            addView(text("🎮  حماية المباراة من تبديل المسار", 17, Color.WHITE, true).margin(bottom = 8))
+            addView(text("فعّل هذا الوضع قبل بدء المباراة: يتوقف الإيقاف التلقائي عند فشل الاختبارات أثناء اللعب، لكن لا يمنع عطل شبكة المزود أو الخادم.", 14, pale).margin(bottom = 8))
+            guardButton = button("", Color.rgb(57, 104, 139), Color.WHITE) {
+                vpn.setMatchProtection(!vpn.matchProtection)
+                updateGuardButton()
+            }
+            addView(guardButton)
+            updateGuardButton()
+        }
+        root.card {
             addView(text("🚦  حماية من حالة عدم الاتصال", 16, Color.WHITE, true).margin(bottom = 10))
-            addView(text("عند تعطل فحص النفق مرتين، يحاول التطبيق إيقافه. إذا فعّلت «حظر الاتصالات بدون VPN» في إعدادات أندرويد فقد يبقى الإنترنت محجوباً. افتح الإعدادات للتحقق.", 14, pale).margin(bottom = 12))
+            addView(text("خارج وضع حماية المباراة، عند فشل اختبارَي النفق المتتاليين، يحاول التطبيق إيقافه. إذا فعّلت «حظر الاتصالات بدون VPN» في إعدادات أندرويد فقد يبقى الإنترنت محجوباً. افتح الإعدادات للتحقق.", 14, pale).margin(bottom = 12))
             addView(button("فتح إعدادات VPN في أندرويد", panel, Color.WHITE) {
                 startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
             })
@@ -207,6 +228,47 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun compareRoutes() {
+        if (!vpn.isConnected()) {
+            comparisonText.text = "فعّل VPN صالحاً وتأكد من نجاح الاتصال قبل المقارنة."
+            return
+        }
+        compareButton.isEnabled = false
+        comparisonText.text = "جارٍ قياس HTTPS على المسارين، دون أي تغيير في الاتصال…"
+        io.execute {
+            val underlying = monitor.underlyingNetwork()
+            val comparison = if (underlying != null && vpn.isConnected()) {
+                val tester = HttpsProbe()
+                // Compare the exact SAME HTTPS endpoint on both paths, not
+                // a fallback endpoint that differs across networks.
+                val firstDirect = tester.sample(underlying, 5, endpoint = 0)
+                val firstRelay = if (vpn.isConnected()) tester.sample(null, 5, endpoint = 0) else null
+                if (firstRelay == null) null else if (
+                    firstDirect.successful >= 3 && firstRelay.successful >= 3
+                ) RouteComparison(firstDirect, firstRelay) else {
+                    // Retry with the other, independent HTTPS endpoint only when
+                    // primary cannot be compared reliably.
+                    val secondDirect = tester.sample(underlying, 5, endpoint = 1)
+                    val secondRelay = if (vpn.isConnected()) tester.sample(null, 5, endpoint = 1) else null
+                    if (secondRelay != null) RouteComparison(secondDirect, secondRelay) else null
+                }
+            } else null
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                compareButton.isEnabled = true
+                comparisonText.text = comparison?.arabicReport()
+                    ?: "لم تكتمل المقارنة: لا توجد شبكة مباشرة موثوقة، أو انتهى اتصال VPN أثناء القياس."
+            }
+        }
+    }
+
+    private fun updateGuardButton() {
+        if (!::guardButton.isInitialized) return
+        guardButton.text = if (vpn.matchProtection)
+            "حماية المباراة: مفعّلة ✅ (اضغط لإيقافها)"
+        else "حماية المباراة: غير مفعّلة (اضغط لتفعيلها)"
     }
 
     private fun askToConnect() {
