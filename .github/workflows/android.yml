@@ -10,6 +10,7 @@ concurrency:
 jobs:
   android:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     permissions:
       contents: read
     steps:
@@ -26,6 +27,13 @@ jobs:
           gradle-version: '8.13'
       - name: Test and build debug APK
         run: gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
+      - name: Upload JUnit reports (also on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Iraq-Game-Route-X1-unit-reports
+          path: app/build/test-results/testDebugUnitTest/
+          if-no-files-found: ignore
       - name: Android Lint (report-only until device certification)
         continue-on-error: true
         run: gradle --no-daemon :app:lintDebug
