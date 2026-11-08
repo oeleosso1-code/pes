@@ -8,7 +8,10 @@ class HealthDecisionTest {
         assertEquals(HealthDecision.Action.VERIFY_AGAIN, HealthDecision.next(1, false))
     }
     @Test fun repeatedChecksStopTunnelOutsideProtectedMatch() {
-        assertEquals(HealthDecision.Action.STOP_TUNNEL, HealthDecision.next(2, false))
+        assertEquals(HealthDecision.Action.STOP_TUNNEL, HealthDecision.next(3, false))
+    }
+    @Test fun secondFailureOnlyWarns() {
+        assertEquals(HealthDecision.Action.VERIFY_AGAIN, HealthDecision.next(2, false))
     }
     @Test fun matchProtectionOverridesAutomaticDisconnection() {
         assertEquals(HealthDecision.Action.WARN_MATCH_PROTECTED, HealthDecision.next(9, true))

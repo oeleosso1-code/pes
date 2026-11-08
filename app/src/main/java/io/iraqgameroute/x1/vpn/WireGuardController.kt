@@ -7,6 +7,7 @@ import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
 import io.iraqgameroute.x1.analytics.HealthDecision
+import io.iraqgameroute.x1.analytics.TunnelHandshake
 import io.iraqgameroute.x1.network.HttpsProbe
 import io.iraqgameroute.x1.network.NetworkMonitor
 import java.util.concurrent.Executors
@@ -19,7 +20,7 @@ class WireGuardController(private val app: Application) {
 
     @Volatile var current = Update(Status.OFF, "الاتصال المباشر متاح")
         private set
-    @Volatile var matchProtection: Boolean = false
+    @Volatile var matchProtection: Boolean = true
         private set
 
     private val handler = Handler(Looper.getMainLooper())
@@ -49,6 +50,11 @@ class WireGuardController(private val app: Application) {
         if (listener != null) handler.post { if (observer === listener) listener(snapshot) }
     }
 
+    /** Only the Activity that installed a callback may remove it. Rotation-safe. */
+    fun unobserve(listener: ((Update) -> Unit)) {
+        if (observer === listener) observer = null
+    }
+
     fun setMatchProtection(protected: Boolean) { matchProtection = protected }
     fun isConnected(): Boolean = current.status in listOf(Status.ON, Status.DEGRADED)
 
@@ -71,28 +77,32 @@ class WireGuardController(private val app: Application) {
                 engine.setState(tunnel, Tunnel.State.UP, config)
                 update(Status.VERIFYING, "جارٍ التحقق من الإنترنت ومصافحة الخادم…")
                 var healthy = false
-                for (attempt in 0 until 3) {
+                for (attempt in 0 until 4) {
                     val response = probe.measure()
-                    val stats = engine.getStatistics(tunnel)
-                    val handshakeSeen = stats.peers().any { key ->
-                        (stats.peer(key)?.latestHandshakeEpochMillis() ?: 0L) > 0L
+                    val handshakeFresh = freshHandshake(engine)
+                    if (response != null && handshakeFresh && engine.getState(tunnel) == Tunnel.State.UP) {
+                        healthy = true
+                        break
                     }
-                    if (response != null && handshakeSeen) { healthy = true; break }
-                    if (attempt < 2) Thread.sleep(1200)
+                    if (attempt < 3) Thread.sleep(2000)
                 }
                 if (!healthy) {
-                    safeStop()
-                    update(Status.FAILED, "فشل تحقق النفق؛ حاولنا إيقاف VPN لاستعادة الاتصال المباشر")
+                    val stopped = safeStop()
+                    update(Status.FAILED, if (stopped)
+                        "تعذّر إثبات صلاحية النفق؛ تم إيقافه. الاتصال المباشر يعتمد على إعدادات النظام"
+                    else "تعذّر التحقق من اتصال VPN أو إيقافه؛ افتح إعدادات VPN في أندرويد")
                 } else {
                     consecutiveFailures = 0
                     update(Status.ON, "تحققنا من النفق عبر HTTPS ومصافحة WireGuard")
                 }
             } catch (e: Exception) {
-                safeStop()
-                update(Status.FAILED, "فشل إنشاء الاتصال (${safeError(e)}). حاولنا إيقاف VPN")
+                val stopped = safeStop()
+                update(Status.FAILED, "فشل الاتصال (${safeError(e)})؛ " +
+                    (if (stopped) "تم إيقاف النفق" else "تعذّر تأكيد إيقاف النفق، افتح إعدادات VPN"))
             } catch (e: LinkageError) {
-                safeStop()
-                update(Status.FAILED, "مكوّن النفق غير متوافق مع الجهاز (${safeError(e)})")
+                val stopped = safeStop()
+                update(Status.FAILED, "مكوّن VPN غير متوافق؛ " +
+                    (if (stopped) "تم إيقاف النفق" else "تعذّر تأكيد إيقاف النفق"))
             }
         }
     }
@@ -108,21 +118,31 @@ class WireGuardController(private val app: Application) {
         }
     }
 
-    /** Returns whether best-effort stop completed without throwing. */
+    /** A successful API call alone is not enough: check the actual backend state. */
     private fun safeStop(): Boolean {
         val success = try {
-            backend?.setState(tunnel, Tunnel.State.DOWN, null)
-            true
+            val engine = backend ?: return true
+            engine.setState(tunnel, Tunnel.State.DOWN, null)
+            engine.getState(tunnel) == Tunnel.State.DOWN
         } catch (_: Exception) { false } catch (_: LinkageError) { false }
         consecutiveFailures = 0
         return success
+    }
+
+    private fun freshHandshake(engine: GoBackend): Boolean {
+        val stats = engine.getStatistics(tunnel)
+        val now = System.currentTimeMillis()
+        return stats.peers().any { key ->
+            TunnelHandshake.isFresh(stats.peer(key)?.latestHandshakeEpochMillis() ?: 0L, now)
+        }
     }
 
     private fun checkTunnel() {
         if (!isConnected()) return
         val engine = backend ?: return
         val healthy = try {
-            engine.getState(tunnel) == Tunnel.State.UP && probe.measure() != null
+            engine.getState(tunnel) == Tunnel.State.UP &&
+                probe.measure() != null && freshHandshake(engine)
         } catch (_: Exception) { false }
         if (healthy) {
             consecutiveFailures = 0
@@ -133,11 +153,11 @@ class WireGuardController(private val app: Application) {
         when (HealthDecision.next(consecutiveFailures, matchProtection)) {
             HealthDecision.Action.KEEP -> Unit
             HealthDecision.Action.VERIFY_AGAIN -> update(Status.DEGRADED,
-                "اختبار واحد فشل؛ سنعيد التحقق دون تغيير المسار")
+                "فشل $consecutiveFailures من الفحوص المتتالية؛ سنعيد التحقق دون تغيير المسار")
             HealthDecision.Action.WARN_MATCH_PROTECTED -> update(Status.DEGRADED,
                 "استمرار فشل اختبار HTTPS؛ حماية المباراة تمنع تبديل المسار تلقائياً")
             HealthDecision.Action.STOP_TUNNEL -> {
-                update(Status.DISCONNECTING, "فشل فحص الاتصال مرتين؛ محاولة استعادة المسار المباشر…")
+                update(Status.DISCONNECTING, "فشل فحص الاتصال ثلاث مرات؛ محاولة استعادة المسار المباشر…")
                 val stopped = safeStop()
                 update(Status.FAILED, if (stopped)
                     "أوقفنا VPN بعد تكرار فشل الاختبار؛ افحص الاتصال المباشر"

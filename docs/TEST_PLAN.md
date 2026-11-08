@@ -7,7 +7,7 @@
 - [x] `RouteDecision`: only recommends a relay candidate with substantial, stable improvement.
 - [x] `RouteDecision`: missing samples produce insufficient-data advisory.
 - [x] `HealthDecision`: first-failure hold, match protection, repeated-failure shutdown intent.
-- [x] Pure Kotlin core compilation + 11 local unit-style tests compiled and executed with a minimal test harness (not Android) (not Android).
+- [x] Pure Kotlin core compilation + **18** JUnit-style tests compiled and executed with a local Java assertion stub (not an Android Gradle build).
 - [ ] GitHub Actions JUnit + APK build — **pending actual workflow result**.
 
 ## Required Android tests (not yet executed)
@@ -19,7 +19,7 @@
 | Cancel VPN permission | No routing changes |
 | Valid WireGuard config, valid relay | Handshake + tunneled HTTPS => ON |
 | Wrong endpoint/no network | VPN fail-safe attempts DOWN |
-| Server stops after connection | After two failed 35s checks, best-effort DOWN |
+| Server stops after connection | After three failed 35s checks, best-effort DOWN |
 | WireGuard config with ExcludedApplications | Reject imported config |
 | eFootball not installed | No VPN activation |
 | WireGuard config uses IPv4/IPv6 | Check DNS, route coverage and leaks on phone |
@@ -46,3 +46,13 @@ Never mark as stable or publish a "100% no disconnect" guarantee. Require succes
 | Process killed and restarted | Profile needs manual re-import; no embedded credentials or silent reconnect |
 
 These scenarios require real device validation. WireGuard configured VPN and server availability are prerequisites.
+
+## New v0.3 critical fault tests
+
+- [x] `TunnelHandshake`: accept fresh peer handshake; reject zero, too old or implausibly far-future timestamps.
+- [x] `ProbeSummary`: never compute jitter across missing HTTP measurements.
+- [x] `HealthDecision`: two failures are not enough to request automatic shutdown; at least three are needed outside match protection.
+- [ ] Full Gradle/Android compilation + Android lint with an accessible SDK.
+- [ ] Verify VpnService behavior on Android 14/15/16 and OEM background restrictions.
+- [ ] On-device test: reboot/restart, rotated Activity while VPN permission dialog is open, coexistence with an existing VPN.
+- [ ] Capture three comparable sessions on Wi-Fi and cellular with a legally operated WireGuard relay.

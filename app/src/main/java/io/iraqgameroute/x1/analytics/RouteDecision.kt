@@ -7,7 +7,7 @@ object RouteDecision {
     enum class Advice { DIRECT, RELAY_CANDIDATE, INSUFFICIENT_DATA }
 
     fun recommend(direct: ProbeSummary, relay: ProbeSummary): Advice {
-        if (direct.successful < 3 || relay.successful < 3 ||
+        if (direct.successful < 4 || relay.successful < 4 ||
             direct.attempted < 5 || relay.attempted < 5) return Advice.INSUFFICIENT_DATA
         val d = direct.medianMs ?: return Advice.INSUFFICIENT_DATA
         val r = relay.medianMs ?: return Advice.INSUFFICIENT_DATA

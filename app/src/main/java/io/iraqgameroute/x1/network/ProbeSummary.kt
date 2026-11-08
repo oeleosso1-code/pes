@@ -19,11 +19,12 @@ data class ProbeSummary(
             if (count == 0) return ProbeSummary(0, 0, null, null, null, 0.0)
             val median = if (values.isEmpty()) null else percentile(values, .5)
             val p95 = if (values.isEmpty()) null else percentile(values, .95)
-            // Adjacent successful samples, in original temporal order.
-            val ordered = samples.filterNotNull()
-            val jitter = ordered.zipWithNext().takeIf { it.isNotEmpty() }
-                ?.map { (a, b) -> kotlin.math.abs(b - a) }
-                ?.average()?.roundToLong()
+            // Only genuinely adjacent successful transactions are compared.
+            // Do not bridge a failed transaction: it would produce fictitious jitter.
+            val adjacent = samples.zipWithNext().mapNotNull { (a, b) ->
+                if (a != null && b != null) kotlin.math.abs(b - a) else null
+            }
+            val jitter = adjacent.takeIf { it.isNotEmpty() }?.average()?.roundToLong()
             return ProbeSummary(count, values.size, median, p95, jitter,
                 (count - values.size) * 100.0 / count)
         }

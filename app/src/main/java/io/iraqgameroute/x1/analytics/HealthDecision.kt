@@ -9,8 +9,8 @@ object HealthDecision {
         require(consecutiveFailures >= 0)
         return when {
             consecutiveFailures == 0 -> Action.KEEP
-            consecutiveFailures == 1 -> Action.VERIFY_AGAIN
             matchProtected -> Action.WARN_MATCH_PROTECTED
+            consecutiveFailures < 3 -> Action.VERIFY_AGAIN
             else -> Action.STOP_TUNNEL
         }
     }

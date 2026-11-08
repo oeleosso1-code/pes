@@ -39,6 +39,10 @@ class MainActivity : ComponentActivity() {
     private val monitor by lazy { NetworkMonitor(this) }
     private val vpn by lazy { (application as IraqRouteApp).vpn }
     private val profiles get() = (application as IraqRouteApp).profiles
+    private val vpnListener: (WireGuardController.Update) -> Unit = { change -> showState(change) }
+    private var pendingConfig: Config?
+        get() = (application as IraqRouteApp).pendingVpnProfile
+        set(value) { (application as IraqRouteApp).pendingVpnProfile = value }
     private lateinit var root: LinearLayout
     private lateinit var networkText: TextView
     private lateinit var vpnText: TextView
@@ -77,7 +81,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private val requestVpn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) connectSelected()
+        val chosen = pendingConfig
+        pendingConfig = null
+        if (result.resultCode == Activity.RESULT_OK && chosen != null) vpn.connect(chosen)
         else showVpnText("لم يُمنح إذن VPN، وظلّ الاتصال المباشر بدون تغيير", warning)
     }
 
@@ -87,7 +93,7 @@ class MainActivity : ComponentActivity() {
         window.navigationBarColor = navy
         buildScreen()
         refreshNetwork()
-        vpn.observe { change -> showState(change) }
+        vpn.observe(vpnListener)
     }
 
     override fun onResume() {
@@ -114,7 +120,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        vpn.observe(null)
+        vpn.unobserve(vpnListener)
         io.shutdownNow()
         super.onDestroy()
     }
@@ -184,7 +190,7 @@ class MainActivity : ComponentActivity() {
         }
         root.card {
             addView(text("🚦  حماية من حالة عدم الاتصال", 16, Color.WHITE, true).margin(bottom = 10))
-            addView(text("خارج وضع حماية المباراة، عند فشل اختبارَي النفق المتتاليين، يحاول التطبيق إيقافه. إذا فعّلت «حظر الاتصالات بدون VPN» في إعدادات أندرويد فقد يبقى الإنترنت محجوباً. افتح الإعدادات للتحقق.", 14, pale).margin(bottom = 12))
+            addView(text("خارج وضع حماية المباراة، عند فشل ثلاثة اختبارات متتالية، يحاول التطبيق إيقافه. إذا فعّلت «حظر الاتصالات بدون VPN» في إعدادات أندرويد فقد يبقى الإنترنت محجوباً. افتح الإعدادات للتحقق.", 14, pale).margin(bottom = 12))
             addView(button("فتح إعدادات VPN في أندرويد", panel, Color.WHITE) {
                 startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
             })
@@ -286,14 +292,27 @@ class MainActivity : ComponentActivity() {
             showVpnText("أوقف النفق الحالي أولاً", warning)
             return
         }
-        val consent = VpnService.prepare(this)
-        if (consent != null) requestVpn.launch(consent) else connectSelected()
-    }
-
-    private fun connectSelected() {
-        val idx = profileSpinner.selectedItemPosition
-        val config = profiles.getOrNull(idx)?.config
-        if (config == null) showVpnText("يجب اختيار ملف خادم أولاً", warning) else vpn.connect(config)
+        val selectedConfig = profiles.getOrNull(profileSpinner.selectedItemPosition)?.config
+        if (selectedConfig == null) {
+            showVpnText("يجب اختيار ملف خادم أولاً", warning)
+            return
+        }
+        pendingConfig = selectedConfig
+        if (monitor.snapshot().vpnActive && !vpn.isConnected()) {
+            pendingConfig = null
+            showVpnText("يبدو أن VPN آخر يعمل على الهاتف. أوقفه من إعدادات النظام أولاً.", warning)
+            return
+        }
+        try {
+            val consent = VpnService.prepare(this)
+            if (consent != null) requestVpn.launch(consent) else {
+                pendingConfig = null
+                vpn.connect(selectedConfig)
+            }
+        } catch (_: SecurityException) {
+            pendingConfig = null
+            showVpnText("لم يتمكن التطبيق من طلب إذن VPN. تحقق من قيود أندرويد.", warning)
+        }
     }
 
     private fun showState(status: WireGuardController.Update) {

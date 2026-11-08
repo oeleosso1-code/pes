@@ -15,6 +15,7 @@ object ConfigPolicy {
         require(ownPackage.matches(Regex("[a-zA-Z_][a-zA-Z0-9_.]*"))) { "Invalid application identifier" }
         val original = Config.parse(ByteArrayInputStream(raw))
         require(original.peers.isNotEmpty()) { "Missing WireGuard peer" }
+        require(original.`interface`.addresses.isNotEmpty()) { "Missing tunnel interface address" }
         // Both conditions must hold on the same peer. A v6-only default is not a v4 game route.
         require(original.peers.any { peer ->
             peer.endpoint.isPresent && peer.allowedIps.any { route ->

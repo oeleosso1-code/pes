@@ -11,3 +11,6 @@
 - No claims about bypassing KONAMI matchmaking or account restrictions.
 
 To report issues, use private communication with project maintainer rather than posting keys in GitHub issues.
+
+- Match protection only prevents automatic route changes by the app; it cannot guarantee connectivity or bypass Android lockdown mode.
+- Direct/VPN comparison performs outbound HTTPS diagnostics to two public services. It never captures game traffic.

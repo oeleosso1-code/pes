@@ -2,7 +2,7 @@
 
 **Android network diagnostics + opt-in, per-app WireGuard tunnel for eFootball Mobile.**
 
-> **Status: `0.1.0-alpha` — source implementation, not yet device-certified.**
+> **Status: `0.3.0-alpha` — source implementation, not yet device-certified.**
 > No guaranteed lower ping, no built-in relay service, and no interaction with Konami's game binaries/protocol.
 
 ## What works in source
@@ -14,9 +14,14 @@
 - Explicit `IncludedApplications` allowlist for `jp.konami.pesam` and the local app only; other apps use normal Android networking. Rejects configs that try to set conflicting application policies.
 - Enforces peer endpoint and default `AllowedIPs` as a basic full-tunnel prerequisite.
 - HTTPS request **through the active VPN** + WireGuard peer handshake verification before marking `ON`.
-- Two consecutive tunnel-health failures trigger a best-effort VPN shutdown.
+- A conservative health policy: a single HTTP failure cannot disconnect an established tunnel. Three consecutive checks (35 seconds apart) trigger a best-effort shutdown only when match protection is **disabled**. Match protection defaults to **ON**, warns without switching routes, and does not repair a failed network.
+- Requires a **recent** WireGuard handshake; an old historical handshake can no longer make a dead tunnel look healthy.
+- Detects an already-active VPN and refuses to silently replace another application's VPN service.
+- Persists the pending VPN consent choice across Activity recreation, but never stores private keys on disk.
+- Rotation-safe observer cleanup so the previous screen cannot detach the new screen's tunnel status observer.
 - Explicit Stop VPN, Android VPN settings link, and state-specific errors.
-- Conservative route-advice model with unit tests; **not automatically connected to game measurements**.
+- Side-by-side direct vs tunneled HTTPS benchmark (fixed target per pair) with conservative route recommendations. These are **not in-game RTT values** and the app never changes routes automatically on these results.
+- Imported profiles persist across activity recreation (e.g. screen rotation) but **not application process restart**; no config secrets are written to disk.
 
 ## Real limitations
 
@@ -26,7 +31,7 @@
 4. Some users enable Android **Block connections without VPN**; then automatic direct fallback can be blocked by Android policy. This app opts out of always-on, but cannot bypass such device policy.
 5. Changing public IP while a match is running can terminate an online session. No mid-match auto-route switching.
 6. Only one VPN can be active per Android user/profile.
-7. This alpha has not passed Android CI or device tests as of this source snapshot. The Actions workflow will produce a **debug APK only if compilation succeeds**.
+7. This alpha has passed **pure Kotlin local checks only** and has not yet passed Android CI or real device tests as of this source snapshot. The Actions workflow will produce a **debug APK only if compilation succeeds**.
 
 ## How to build
 
@@ -45,8 +50,9 @@ Or select **Actions → Android build and unit tests** in GitHub; after a green 
 3. Obtain a trusted WireGuard configuration for a server you administer or have permission to use.
 4. Import the `.conf` file (private key is never printed in logs). Choose it from the profile selector.
 5. Tap **تشغيل المسار المشفّر**, accept Android's VPN consent, verify success; the app tests actual HTTPS through the tunnel.
-6. If it fails, X1 attempts to disable the VPN. Use **إيقاف VPN** or the system VPN settings as needed.
-7. Compare actual eFootball match stability separately; stop the VPN if the direct path performs better.
+6. Use **مقارنة المسارين** to compare HTTPS timing on direct and VPN routes. Activate **حماية المباراة** before playing if you prefer not to have automated recovery change your current route mid-game.
+7. If it fails, X1 attempts to disable the VPN. Use **إيقاف VPN** or the system VPN settings as needed.
+8. Compare actual eFootball match stability separately; stop the VPN if the direct path performs better.
 
 **Do not upload real `.conf` files or private keys to GitHub.** `.gitignore` excludes them.
 
@@ -74,3 +80,10 @@ docs/                             architecture, test plan, references, limitatio
 No misleading claim of merging all six VPN programs: Android has one active VPN service, and GPL dependencies require license review before source integration.
 
 See [design](docs/ARCHITECTURE.md), [test plan](docs/TEST_PLAN.md), [source references](docs/SOURCES.md) and [security](SECURITY.md).
+
+## v0.3 verification (2026-11-08)
+
+- 18 pure Kotlin JUnit-style checks compiled and passed locally, with Java stub JUnit assertions; **not** an Android app build.
+- AGP 8.13.2, Gradle 8.13, Kotlin 2.4.21 and WireGuard tunnel 1.0.20260102 were matched to current official compatibility and artifact sources.
+- CI and real Android hardware results are still required before describing the app as production-ready.
+- No real VPS, tunnel secret, or Konami server access is bundled. See [relay prerequisites](docs/RELAY_SETUP.md).
