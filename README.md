@@ -30,7 +30,7 @@
 
 ## How to build
 
-Install JDK 17, Android SDK platform 36 and Build Tools 35.0.0, Gradle 8.13. The project uses Android Gradle Plugin 8.13.2 and Kotlin 2.0.21.
+Install JDK 17, Android SDK platform 36 and Build Tools 35.0.0, Gradle 8.13. The project uses Android Gradle Plugin 8.13.2 and Kotlin 2.4.21.
 
 ```sh
 gradle :app:testDebugUnitTest :app:assembleDebug
