@@ -5,6 +5,16 @@
 > **Status: `0.5.0-alpha` — automated pre-match route trials, not yet device-certified.**
 > No guaranteed lower ping, no built-in relay service, and no interaction with Konami's game binaries/protocol.
 
+## Self-hosted relay creation (server edition 0.6 — NEW)
+
+The repository now includes a **tested offline provisioning toolkit** under [`server/`](server/README.md): Ubuntu install script, per-device WireGuard profile generation, peer revocation, relay health inspection, strict input checks, optional manual GitHub Actions deployment to **an existing owner-controlled VPS**, and CI verification of the scripts. The Android 0.5 APK can import these server-generated profiles without a new Android release.
+
+**These scripts are not real hosted servers. No VPS has been rented, started or connected using this repo.** To get the one-tap route optimization to work, you must provide an actual VPS (public IPv4, SSH rights, inbound UDP enabled), provision a client profile privately on that server, import it to the app, and measure actual game quality. This kit does not offer free shared VPN exit servers or guarantee an improvement.
+
+Start with [`server/README.md`](server/README.md), then run the safe deployment checks under **Actions → Relay scripts checks**. Actual server deployment can be initiated through **Actions → Deploy IGRX1 relay to existing VPS** after deliberately setting encrypted GitHub SSH secrets and verifying its host key.
+
+---
+
 ## What works in source
 
 - Arabic RTL native screen with connectivity state and manual direct-network diagnosis.
@@ -109,3 +119,7 @@ See [design](docs/ARCHITECTURE.md), [test plan](docs/TEST_PLAN.md), [source refe
 - Any observed change of the physical network, VPN failure, or user Stop request cancels the trial and attempts clean shutdown. Fail-open depends on Android lockdown settings; do not imply a 100% no-disconnect guarantee.
 - Watchdog's match protection remains enabled by default once a successful candidate is selected, so the app does not intentionally rotate the route during play.
 - Pure Kotlin local unit suite: 30/30 tests passed using a lightweight JUnit API stub, **not** an Android emulator/device test. Full GitHub Actions results and actual gaming impact are separate acceptance gates.
+
+## Live VPS connectivity checks (server v0.7)
+
+The relay server code now includes `server/verify-live-client.sh`, which requires a recent handset handshake **and** encrypted RX/TX traffic on a real server. The health check also verifies local IPv4 masquerading. The GitHub repository does **not** supply hosting, a public IP, secret client keys, or a live network. See [live deployment checklist](docs/LIVE_DEPLOYMENT.md).
