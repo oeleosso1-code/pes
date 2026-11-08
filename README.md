@@ -2,7 +2,7 @@
 
 **Android network diagnostics + opt-in, per-app WireGuard tunnel for eFootball Mobile.**
 
-> **Status: `0.3.0-alpha` — source implementation, not yet device-certified.**
+> **Status: `0.4.0-alpha` — source implementation, not yet device-certified.**
 > No guaranteed lower ping, no built-in relay service, and no interaction with Konami's game binaries/protocol.
 
 ## What works in source
@@ -20,7 +20,7 @@
 - Persists the pending VPN consent choice across Activity recreation, but never stores private keys on disk.
 - Rotation-safe observer cleanup so the previous screen cannot detach the new screen's tunnel status observer.
 - Explicit Stop VPN, Android VPN settings link, and state-specific errors.
-- Side-by-side direct vs tunneled HTTPS benchmark (fixed target per pair) with conservative route recommendations. These are **not in-game RTT values** and the app never changes routes automatically on these results.
+- Interleaved **ABBA/BAAB** direct vs VPN HTTPS benchmark (8 samples per path, identical target, aborts if Wi-Fi/cellular path or VPN changes) and conservative route recommendations. These are **not in-game RTT values** and the app never changes routes automatically on these results.
 - Imported profiles persist across activity recreation (e.g. screen rotation) but **not application process restart**; no config secrets are written to disk.
 
 ## Real limitations
@@ -81,9 +81,18 @@ No misleading claim of merging all six VPN programs: Android has one active VPN 
 
 See [design](docs/ARCHITECTURE.md), [test plan](docs/TEST_PLAN.md), [source references](docs/SOURCES.md) and [security](SECURITY.md).
 
-## v0.3 verification (2026-11-08)
+## v0.4 verification (2026-11-08)
 
-- 18 pure Kotlin JUnit-style checks compiled and passed locally, with Java stub JUnit assertions; **not** an Android app build.
-- AGP 8.13.2, Gradle 8.13, Kotlin 2.4.21 and WireGuard tunnel 1.0.20260102 were matched to current official compatibility and artifact sources.
+- 25 pure Kotlin JUnit-style checks compiled and passed locally, with Java stub JUnit assertions; **not** an Android app build.
+- AGP 8.13.2, Gradle 8.13, Kotlin 2.4.21 and WireGuard tunnel 1.0.20260102 were matched to published compatibility and artifact sources (Android build still not run locally).
 - CI and real Android hardware results are still required before describing the app as production-ready.
 - No real VPS, tunnel secret, or Konami server access is bundled. See [relay prerequisites](docs/RELAY_SETUP.md).
+
+## v0.4 connection-safe comparison
+
+- ABBA/BAAB sampling: direct → VPN → VPN → direct, alternating reverse order on the next round. Eight transactions per path reduce timing bias from a rapidly changing ISP; this is not real UDP jitter or game ping.
+- All 16 samples use one HTTPS endpoint. If one path cannot reliably reach it, the benchmark repeats with the secondary endpoint **for both paths**.
+- A change in underlying Wi-Fi/cellular network or loss of the active VPN invalidates and discards the full comparison.
+- Requires at least 7/8 successful transactions per route, 15% AND 8ms lower median, non-worse P95 and jitter/failure ratio to classify the relay as a candidate. This is a conservative heuristic, not statistical proof and **never auto-switches**.
+- Refuses to start a replacement tunnel if the previous backend still reports UP after an uncertain failure.
+- CI and real-device testing are mandatory prior to advertising any latency benefit; sample endpoints are Google/Cloudflare, not Konami.
