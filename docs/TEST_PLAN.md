@@ -73,3 +73,17 @@ These scenarios require real device validation. WireGuard configured VPN and ser
 Note: v0.4's 25 test methods were executed through a minimal local Java JUnit
 compatibility stub with Kotlin/JVM compiler 1.9.0. They do **not** substitute
 for a real Android Gradle build or test runner.
+
+## v0.5 new optimizer safety tests
+
+- [x] Selector refuses missing/noisy results and defaults to direct.
+- [x] Selector only chooses relays meeting conservative threshold.
+- [x] Selector ranks candidate tail latencies consistently.
+- [x] Local pure Kotlin suite: 30/30 tests passed (not Android/CI testing).
+- [ ] Confirm GitHub Actions APK build passes with updated UI/GoBackend wiring.
+- [ ] Test three valid relays on physical Android devices, on actual Wi-Fi and mobile networks.
+- [ ] Inject failure of a candidate after the first benchmark; confirm final verification rejects it.
+- [ ] Kill relay mid-test, tap Stop, switch Wi-Fi/mobile, then verify tunnel shutdown.
+- [ ] Check system lockdown (Block connections without VPN) behavior and user messaging.
+- [ ] Check battery and data consumption of multi-relay trials; no background continuous polling.
+- [ ] Observe a real eFootball match after selected pre-match route; compare with direct.
