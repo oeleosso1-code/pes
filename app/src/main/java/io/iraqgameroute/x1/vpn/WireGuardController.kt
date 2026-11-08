@@ -71,6 +71,15 @@ class WireGuardController(private val app: Application) {
                 update(Status.FAILED, "لا توجد شبكة مباشرة متحقّق منها؛ لم يُشغّل VPN")
                 return@execute
             }
+            // FAILED may mean shutdown could not be confirmed. Never layer a
+            // second activation over a possibly still running tunnel.
+            val existingUp = try {
+                backend?.getState(tunnel) == Tunnel.State.UP
+            } catch (_: Exception) { true } catch (_: LinkageError) { true }
+            if (existingUp) {
+                update(Status.FAILED, "حالة VPN السابق غير مؤكدة؛ أوقفه من إعدادات أندرويد أولاً")
+                return@execute
+            }
             update(Status.CONNECTING, "جارٍ إنشاء النفق المشفّر…")
             try {
                 val engine = backend ?: GoBackend(app).also { backend = it }
