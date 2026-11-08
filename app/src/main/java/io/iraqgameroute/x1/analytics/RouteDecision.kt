@@ -2,21 +2,24 @@ package io.iraqgameroute.x1.analytics
 
 import io.iraqgameroute.x1.network.ProbeSummary
 
-/** Conservative HTTPS comparison; not an in-game latency benchmark. */
+/** Conservative decision on repeated HTTPS transactions, not game network traffic. */
 object RouteDecision {
     enum class Advice { DIRECT, RELAY_CANDIDATE, INSUFFICIENT_DATA }
 
+    /** Require 8 trials per path, at least 7 successes, and consistently lower tail latency. */
     fun recommend(direct: ProbeSummary, relay: ProbeSummary): Advice {
-        if (direct.successful < 4 || relay.successful < 4 ||
-            direct.attempted < 5 || relay.attempted < 5) return Advice.INSUFFICIENT_DATA
+        if (direct.attempted < 8 || relay.attempted < 8 ||
+            direct.successful < 7 || relay.successful < 7) return Advice.INSUFFICIENT_DATA
         val d = direct.medianMs ?: return Advice.INSUFFICIENT_DATA
         val r = relay.medianMs ?: return Advice.INSUFFICIENT_DATA
-        val directJitter = direct.jitterMs ?: return Advice.INSUFFICIENT_DATA
-        val relayJitter = relay.jitterMs ?: return Advice.INSUFFICIENT_DATA
-        val directP95 = direct.p95Ms ?: return Advice.INSUFFICIENT_DATA
-        val relayP95 = relay.p95Ms ?: return Advice.INSUFFICIENT_DATA
-        return if (r <= d * .85 && relayP95 <= directP95 &&
-            relay.httpFailurePercent <= direct.httpFailurePercent &&
-            relayJitter <= directJitter) Advice.RELAY_CANDIDATE else Advice.DIRECT
+        val dJitter = direct.jitterMs ?: return Advice.INSUFFICIENT_DATA
+        val rJitter = relay.jitterMs ?: return Advice.INSUFFICIENT_DATA
+        val dP95 = direct.p95Ms ?: return Advice.INSUFFICIENT_DATA
+        val rP95 = relay.p95Ms ?: return Advice.INSUFFICIENT_DATA
+
+        return if (d > 0 && r <= d * .85 && (d - r) >= 8 &&
+            rP95 <= dP95 && rJitter <= maxOf(dJitter, 4L) &&
+            relay.httpFailurePercent <= direct.httpFailurePercent
+        ) Advice.RELAY_CANDIDATE else Advice.DIRECT
     }
 }
