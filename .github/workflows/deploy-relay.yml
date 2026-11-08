@@ -39,7 +39,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           source server/lib.sh
-          validate_host "$ENDPOINT"
+          validate_public_endpoint "$ENDPOINT"
           validate_region "$REGION"
           validate_port "$PORT"
           validate_prefix "$PREFIX"
