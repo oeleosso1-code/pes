@@ -105,3 +105,10 @@ Android SDK package `tools`. The workflow now uses preinstalled GitHub runner
 Android command-line tools to accept licenses and install `platforms;android-36`
 and `build-tools;35.0.0`. A passing run is still required to validate this fix
 and build an APK; do not equate the local Kotlin tests with successful Android CI.
+
+### Kotlin 2.4 compiler DSL correction
+
+The next CI run progressed through Android SDK setup, but Gradle script
+compilation failed because Kotlin 2.4.21 rejects `kotlinOptions.jvmTarget`.
+The build script now sets `kotlin.compilerOptions.jvmTarget = JVM_17`.
+This still requires a new successful Android CI run.
