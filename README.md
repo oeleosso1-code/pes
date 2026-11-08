@@ -96,3 +96,12 @@ See [design](docs/ARCHITECTURE.md), [test plan](docs/TEST_PLAN.md), [source refe
 - Requires at least 7/8 successful transactions per route, 15% AND 8ms lower median, non-worse P95 and jitter/failure ratio to classify the relay as a candidate. This is a conservative heuristic, not statistical proof and **never auto-switches**.
 - Refuses to start a replacement tunnel if the previous backend still reports UP after an uncertain failure.
 - CI and real-device testing are mandatory prior to advertising any latency benefit; sample endpoints are Google/Cloudflare, not Konami.
+
+## CI SDK bootstrap fix (2026-11-08)
+
+The first observed GitHub Actions job for v0.4 failed **before compilation**, in
+`android-actions/setup-android@v3`, because it attempted to install the obsolete
+Android SDK package `tools`. The workflow now uses preinstalled GitHub runner
+Android command-line tools to accept licenses and install `platforms;android-36`
+and `build-tools;35.0.0`. A passing run is still required to validate this fix
+and build an APK; do not equate the local Kotlin tests with successful Android CI.
