@@ -1,0 +1,75 @@
+name: Deploy IGRX1 relay to existing VPS
+on:
+  workflow_dispatch:
+    inputs:
+      endpoint:
+        description: 'Public IPv4/DNS for this already-owned VPS (not a secret)'
+        required: true
+        type: string
+      region:
+        description: 'Short unique label, e.g. bahrain-1 (does not create a region)'
+        required: true
+        type: string
+      port:
+        description: 'WireGuard UDP port'
+        required: true
+        default: '51820'
+        type: string
+      prefix:
+        description: 'Private /24 prefix (10.x.y)'
+        required: true
+        default: '10.207.20'
+        type: string
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: relay-deployment
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate script syntax and deploy inputs
+        shell: bash
+        env:
+          ENDPOINT: ${{ inputs.endpoint }}
+          REGION: ${{ inputs.region }}
+          PORT: ${{ inputs.port }}
+          PREFIX: ${{ inputs.prefix }}
+        run: |
+          set -Eeuo pipefail
+          source server/lib.sh
+          validate_host "$ENDPOINT"
+          validate_region "$REGION"
+          validate_port "$PORT"
+          validate_prefix "$PREFIX"
+          for script in server/*.sh; do bash -n "$script"; done
+      - name: Secure copy and install on existing VPS
+        shell: bash
+        env:
+          ENDPOINT: ${{ inputs.endpoint }}
+          REGION: ${{ inputs.region }}
+          PORT: ${{ inputs.port }}
+          PREFIX: ${{ inputs.prefix }}
+          SSH_HOST: ${{ secrets.RELAY_SSH_HOST }}
+          SSH_USER: ${{ secrets.RELAY_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.RELAY_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.RELAY_SSH_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$SSH_HOST" && -n "$SSH_USER" && -n "$SSH_PRIVATE_KEY" && -n "$SSH_KNOWN_HOSTS" ]] || { echo 'Missing VPS SSH secrets'; exit 1; }
+          source server/lib.sh
+          validate_host "$SSH_HOST"
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo 'Invalid SSH user'; exit 1; }
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          chmod 700 "$tmp"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$tmp/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$tmp/known_hosts"
+          chmod 600 "$tmp/key" "$tmp/known_hosts"
+          tar -czf "$tmp/server.tar.gz" server
+          opts=(-i "$tmp/key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$tmp/known_hosts" -o ConnectTimeout=15)
+          scp "${opts[@]}" "$tmp/server.tar.gz" "$SSH_USER@$SSH_HOST:/tmp/igrx1-server.tar.gz"
+          # Values have already passed strict allowlist checks, and are not secrets.
+          ssh "${opts[@]}" "$SSH_USER@$SSH_HOST" "sudo -n mkdir -p /opt/igrx1 && sudo -n tar -xzf /tmp/igrx1-server.tar.gz -C /opt/igrx1 && sudo -n bash /opt/igrx1/server/install-relay.sh --endpoint '$ENDPOINT' --region '$REGION' --port '$PORT' --prefix '$PREFIX' && rm -f /tmp/igrx1-server.tar.gz"
+          echo 'Provisioning command completed. Confirm firewall and device handshake separately.'
