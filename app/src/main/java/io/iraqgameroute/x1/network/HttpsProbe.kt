@@ -27,12 +27,12 @@ class HttpsProbe {
                 conn.readTimeout = 2600
                 conn.instanceFollowRedirects = false
                 conn.useCaches = false
-                conn.setRequestProperty("User-Agent", "IraqGameRouteX1/0.1")
+                conn.setRequestProperty("User-Agent", "IraqGameRouteX1/0.4")
                 conn.setRequestProperty("Connection", "close")
                 conn.requestMethod = "GET"
                 val status = conn.responseCode
                 if (status in 200..299) {
-                    return (SystemClock.elapsedRealtimeNanos() - started) / 1_000_000L
+                    return maxOf(1L, (SystemClock.elapsedRealtimeNanos() - started) / 1_000_000L)
                 }
             } catch (_: Exception) {
                 // Try the second independent endpoint. Never silently claim success.
