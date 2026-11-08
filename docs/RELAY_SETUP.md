@@ -1,6 +1,6 @@
 # Relay infrastructure prerequisites
 
-This Android application **does not include a relay service**. It cannot create a new internet route on its own or promise lower latency. You must acquire access to a reliable WireGuard server from a trusted provider or a server you operate, and a valid per-client `.conf`.
+This repository now contains a **self-hosted WireGuard provisioning kit** in [`server/`](../server/README.md), but **no public VPS is deployed or bundled**. The Android application **does not include a running relay service**. It cannot create a new internet route on its own or promise lower latency. You must acquire access to a reliable WireGuard server from a trusted provider or a server you operate, and a valid per-client `.conf`.
 
 ## Required properties
 
