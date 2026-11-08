@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var checkButton: Button
     private lateinit var compareButton: Button
     private lateinit var guardButton: Button
+    private lateinit var autoButton: Button
     private lateinit var comparisonText: TextView
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val cm by lazy { getSystemService(ConnectivityManager::class.java) }
@@ -83,8 +84,13 @@ class MainActivity : ComponentActivity() {
 
     private val requestVpn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val chosen = pendingConfig
+        val autoProfiles = (application as IraqRouteApp).pendingAutoProfiles
         pendingConfig = null
-        if (result.resultCode == Activity.RESULT_OK && chosen != null) vpn.connect(chosen)
+        (application as IraqRouteApp).pendingAutoProfiles = null
+        if (result.resultCode == Activity.RESULT_OK && autoProfiles != null)
+            vpn.optimizeBeforeMatch(autoProfiles)
+        else if (result.resultCode == Activity.RESULT_OK && chosen != null)
+            vpn.connect(chosen)
         else showVpnText("لم يُمنح إذن VPN، وظلّ الاتصال المباشر بدون تغيير", warning)
     }
 
@@ -177,6 +183,9 @@ class MainActivity : ComponentActivity() {
             addView(profileSpinner)
             addView(button("استيراد ملف خادم جديد", green, navy) { importFile.launch("*/*") }.margin(top = 10))
             addView(button("تشغيل المسار المشفّر", Color.rgb(57, 104, 139), Color.WHITE) { askToConnect() }.margin(top = 10))
+            addView(text("⚡ التحسين التلقائي قبل المباراة يفحص حتى 3 خوادم مستوردة. يختار المسار المباشر إذا لم يثبت أن النفق أفضل مرتين. لا تبدأ المباراة حتى انتهاء الاختبارات، ولن يغيّر المسار أثناء اللعب.", 13, pale).margin(top = 14, bottom = 6))
+            autoButton = button("⚡ اختيار أفضل مسار تلقائياً قبل المباراة", green, navy) { askToOptimize() }
+            addView(autoButton)
             addView(button("إيقاف VPN والعودة للمسار المباشر", Color.rgb(119, 67, 68), Color.WHITE) { vpn.disconnect() }.margin(top = 10))
         }
         root.card {
@@ -284,6 +293,41 @@ class MainActivity : ComponentActivity() {
         else "حماية المباراة: غير مفعّلة (اضغط لتفعيلها)"
     }
 
+    /** Explicit user action: this can change VPN route, so only run BEFORE a match. */
+    private fun askToOptimize() {
+        if (profiles.isEmpty()) {
+            showVpnText("استورد إعداد خادم WireGuard موثوقاً أولاً. لا يمكن تحسين المسار بلا خوادم", warning)
+            return
+        }
+        try {
+            packageManager.getPackageInfo(ConfigPolicy.EFOOTBALL_PACKAGE, 0)
+        } catch (_: Exception) {
+            showVpnText("يجب تثبيت تطبيق eFootball الرسمي أولاً", warning)
+            return
+        }
+        if (vpn.current.status !in listOf(WireGuardController.Status.OFF, WireGuardController.Status.FAILED)) {
+            showVpnText("يجب إيقاف النفق الحالي قبل البحث التلقائي", warning)
+            return
+        }
+        if (monitor.snapshot().vpnActive) {
+            showVpnText("يوجد VPN نشط على الجهاز، أوقفه من إعدادات أندرويد أولاً", warning)
+            return
+        }
+        val choices = profiles.take(3).map { WireGuardController.RouteProfile(it.title, it.config) }
+        (application as IraqRouteApp).pendingAutoProfiles = choices
+        try {
+            val consent = VpnService.prepare(this)
+            if (consent != null) requestVpn.launch(consent)
+            else {
+                (application as IraqRouteApp).pendingAutoProfiles = null
+                vpn.optimizeBeforeMatch(choices)
+            }
+        } catch (_: SecurityException) {
+            (application as IraqRouteApp).pendingAutoProfiles = null
+            showVpnText("تعذّر طلب صلاحية VPN. تحقق من إعدادات النظام", warning)
+        }
+    }
+
     private fun askToConnect() {
         if (profiles.isEmpty()) {
             showVpnText("يجب استيراد ملف خادم WireGuard صالح أولاً", warning)
@@ -327,6 +371,8 @@ class MainActivity : ComponentActivity() {
         val tint = if (status.status == WireGuardController.Status.ON) green else if (
             status.status == WireGuardController.Status.FAILED) warning else pale
         showVpnText("${status.status}: ${status.message}", tint)
+        if (::autoButton.isInitialized) autoButton.isEnabled =
+            status.status in listOf(WireGuardController.Status.OFF, WireGuardController.Status.FAILED)
         refreshNetwork()
     }
 
