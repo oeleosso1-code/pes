@@ -7,7 +7,7 @@
 - [x] `RouteDecision`: only recommends a relay candidate with substantial, stable improvement.
 - [x] `RouteDecision`: missing samples produce insufficient-data advisory.
 - [x] `HealthDecision`: first-failure hold, match protection, repeated-failure shutdown intent.
-- [x] Pure Kotlin core compilation + six local behavioral assertions (not Android).
+- [x] Pure Kotlin core compilation + 11 local unit-style tests compiled and executed with a minimal test harness (not Android) (not Android).
 - [ ] GitHub Actions JUnit + APK build — **pending actual workflow result**.
 
 ## Required Android tests (not yet executed)
