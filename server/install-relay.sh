@@ -27,7 +27,7 @@ while (( $# )); do
         *) fail "Unknown argument $1" ;;
     esac
 done
-validate_host "$endpoint" || fail 'Invalid --endpoint. Use a public IPv4 or DNS name.'
+validate_public_endpoint "$endpoint" || fail 'Invalid --endpoint. Use a public IPv4 or DNS name.'
 validate_region "$region" || fail 'Invalid --region. Example: bahrain-1.'
 validate_port "$port" || fail 'Invalid UDP port (1024..65535).'
 validate_prefix "$prefix" || fail 'Invalid --prefix (private network 10.x.y).'
