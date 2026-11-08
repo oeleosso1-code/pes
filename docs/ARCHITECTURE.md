@@ -10,7 +10,7 @@ User taps diagnostics ---> NetworkMonitor.underlyingNetwork()
 User imports .conf -> Config.parse -> ConfigPolicy validation and allowlist
                    -> Android VPN consent -> GoBackend.setState(UP)
                    -> HTTPS through VPN + peer handshake -> Mark ON or DOWN
-                   -> Watchdog checks every 35 seconds -> DOWN after two failures
+                   -> Watchdog checks every 35 seconds -> WARN on first failure -> best-effort DOWN after two failures unless user enables match protection
 ```
 
 ## Safety invariants
@@ -20,9 +20,9 @@ User imports .conf -> Config.parse -> ConfigPolicy validation and allowlist
 3. `IncludedApplications` is **always regenerated** to include only this app + official eFootball package ID; user imported allowlists and denylists are rejected.
 4. WireGuard's official `GoBackend` is the sole VPN service. No loopback proxy or fake connectivity switch.
 5. `ON` means a WireGuard handshake **and** a successful HTTPS request through that same routing policy, not just a tun interface.
-6. A failed setup attempts to shut down the tunnel. A failed running health check triggers a best-effort shutdown after two failures.
+6. A failed setup attempts to shut down the tunnel. An isolated health-check failure does NOT disconnect. Repeated failures trigger best-effort shutdown **unless user has enabled match protection**, in which case the app warns without altering routes.
 7. Fallback cannot defeat Android lockdown settings; warn users clearly.
-8. This alpha does not change server routes mid-match; updates are a future feature needing explicit consent and game-session awareness.
+8. This alpha never automatically changes between relay nodes. Match protection is explicitly user-controlled and not automatic game-session detection.
 
 ## Trust boundaries
 
@@ -30,7 +30,11 @@ User imports .conf -> Config.parse -> ConfigPolicy validation and allowlist
 - A VPN relay operator may observe metadata and destination traffic timing. Use only trusted operators.
 - This application uses the Android `VpnService` consent surface. It does not control user-defined lockdown policy.
 - Diagnostic URLs are Google `generate_204` and Cloudflare `cdn-cgi/trace`. They will see a request from the user's IP; no app analytics or account identifiers are sent.
-- User profile data are kept in RAM, lost when the activity/process restarts; no credential persistence.
+- User profile data are kept in application RAM: they survive rotation but are lost on process restart; no credential persistence.
+
+## Currently implemented route comparison
+
+An explicitly requested comparison measures exactly the SAME HTTPS endpoint from a validated underlying network and the local app VPN route, five samples each. When the first endpoint is unreachable, both sides retry the second endpoint. No decision is auto-applied. Results do NOT represent game RTT, UDP packet loss, or gameplay quality. Comparisons made sequentially can still be affected by time-varying congestion.
 
 ## Extending route scoring (planned, NOT working yet)
 
