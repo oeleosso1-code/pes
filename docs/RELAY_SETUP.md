@@ -21,3 +21,7 @@ Never change relays while a match is in progress. Prefer the direct internet pat
 ## Release prerequisites
 
 Obtain a dedicated test relay and client profile, run the Android build CI, perform real on-device functional tests, and compare actual in-game responsiveness over multiple matches. The project does not modify the eFootball client or intercept/decrypt the game's private protocol.
+
+## Real deployment gate
+
+See [Live deployment checklist](LIVE_DEPLOYMENT.md). Confirm a real client handshake plus encrypted two-way traffic using `server/verify-live-client.sh` **before** claiming the relay works. GitHub code publication does not allocate a VPS.
