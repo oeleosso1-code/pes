@@ -7,6 +7,13 @@ assert_accept() { "$1" "$2" || { echo "Expected accepted: $1 $2" >&2; exit 1; };
 assert_reject() { if "$1" "$2"; then echo "Expected rejected: $1 $2" >&2; exit 1; fi; }
 assert_accept validate_host 'relay.example.com'
 assert_accept validate_host '198.51.100.10'
+assert_reject validate_public_endpoint '198.51.100.10'
+assert_accept validate_public_endpoint '203.2.3.4'
+assert_reject validate_public_endpoint '127.0.0.1'
+assert_reject validate_public_endpoint '10.1.2.3'
+assert_reject validate_public_endpoint '192.168.1.5'
+assert_reject validate_public_endpoint '203.0.113.8'
+assert_accept validate_public_endpoint 'relay.example.com'
 assert_reject validate_host '999.20.30.40'
 assert_reject validate_host 'x;rm -rf /'
 assert_reject validate_host 'relay..example.com'
@@ -25,7 +32,7 @@ assert_reject validate_port '65536'
 assert_accept validate_prefix '10.207.20'
 assert_reject validate_prefix '192.168.1'
 assert_reject validate_prefix '10.999.1'
-for script in install-relay add-client remove-client; do
+for script in install-relay add-client remove-client verify-live-client; do
     bash "$(dirname "${BASH_SOURCE[0]}")/../${script}.sh" --help >/dev/null
 done
-printf 'PASS: server input validation and non-privileged CLI smoke tests (21 checks)\n'
+printf 'PASS: server input validation and non-privileged CLI smoke tests (29 checks)\n'
