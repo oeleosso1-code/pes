@@ -17,3 +17,5 @@
 - Tailscale: https://github.com/tailscale/tailscale
 
 Only WireGuard's Maven tunnel library and AndroidX runtime are integrated in this alpha. Other repositories are architecture references, not merged libraries. Code reuse must be separately audited for GPL/Apache/BSD/LGPL compatibility.
+
+- Official Kotlin Gradle compatibility matrix: https://kotlinlang.org/docs/gradle-configure-project.html
