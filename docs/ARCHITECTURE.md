@@ -10,7 +10,7 @@ User taps diagnostics ---> NetworkMonitor.underlyingNetwork()
 User imports .conf -> Config.parse -> ConfigPolicy validation and allowlist
                    -> Android VPN consent -> GoBackend.setState(UP)
                    -> HTTPS through VPN + peer handshake -> Mark ON or DOWN
-                   -> Watchdog checks every 35 seconds -> WARN on first failure -> best-effort DOWN after two failures unless user enables match protection
+                   -> Watchdog checks every 35 seconds -> WARN on first failure -> best-effort DOWN after three failures unless user enables match protection
 ```
 
 ## Safety invariants
@@ -32,9 +32,21 @@ User imports .conf -> Config.parse -> ConfigPolicy validation and allowlist
 - Diagnostic URLs are Google `generate_204` and Cloudflare `cdn-cgi/trace`. They will see a request from the user's IP; no app analytics or account identifiers are sent.
 - User profile data are kept in application RAM: they survive rotation but are lost on process restart; no credential persistence.
 
-## Currently implemented route comparison
+## Currently implemented route comparison (v0.4)
 
-An explicitly requested comparison measures exactly the SAME HTTPS endpoint from a validated underlying network and the local app VPN route, five samples each. When the first endpoint is unreachable, both sides retry the second endpoint. No decision is auto-applied. Results do NOT represent game RTT, UDP packet loss, or gameplay quality. Comparisons made sequentially can still be affected by time-varying congestion.
+User-initiated `RouteBenchmark` collects 8 samples for each route using 4 interleaved
+ABBA / BAAB rounds. This avoids a fixed 5-direct-then-5-VPN scheduling bias.
+The direct requests use the same Android `Network` throughout; the VPN requests
+use the app's VPN route. Before and after every probe, the benchmark verifies
+that the physical `Network` identity is unchanged and the tunnel remains ON/DEGRADED.
+If not, it returns no comparison (never partial results). The primary URL is the same
+for both paths; if either path cannot reliably reach it, both are measured using
+the secondary URL. No automatic route changes occur.
+
+`RouteDecision` uses minimum successful-sample coverage, median, P95, adjacent
+HTTP transaction-time variation and HTTP failure rate. These are **not** ICMP or
+UDP or the true latency to Konami game servers; results are recommendations
+for pre-match user testing only.
 
 ## Extending route scoring (planned, NOT working yet)
 
