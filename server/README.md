@@ -60,3 +60,22 @@ Then select **Actions → Deploy IGRX1 relay to existing VPS → Run workflow** 
 - Root-owned client configurations are plaintext at rest on the VPS: protect backups, VPS disk access, and administration credentials. Rotate credentials if compromised.
 - Script uses iptables compatible with Ubuntu 22.04/24.04 (normally iptables-nft) and UFW hooks. If custom network firewall tools are installed, review forwarding/NAT interaction first.
 - The relay is not a gaming accelerator by itself; cloud provider routing may be less efficient than direct. Use only your own servers or a provider that permits WireGuard/VPN usage.
+
+## Live connectivity verification (server edition 0.7)
+
+The relay can report **success locally** even when a VPS firewall blocks UDP from the phone. To confirm that the Android client really reached WireGuard, connect the client's VPN on the phone, open a normal webpage, then run **on the VPS**:
+
+```bash
+sudo bash server/verify-live-client.sh --name phone1
+```
+
+This requires a **fresh** WireGuard handshake and nonzero encrypted receive/send byte counters for that specific client. It prints no private keys and cannot prove lower eFootball latency. A failed check means the phone is not yet verified; inspect the VPS firewall, Android VPN permission, client profile, and public UDP access. Do not switch to gaming with a failed live test.
+
+The health check also verifies that the expected IPv4 MASQUERADE rule exists, in addition to checking forwarding and WireGuard's listener. This still cannot test upstream routing or access from an Iraqi ISP. Use **only** a real, publicly reachable VPS. The installer rejects private and documentation IPv4 literals to prevent false 'deployed' claims.
+
+### Explicit deployment status
+
+1. **Source published:** files appear in GitHub.
+2. **VPS installed:** `wg-quick@igrx1` is active on the VPS, which is NOT established by GitHub publication.
+3. **Phone verified:** `verify-live-client.sh` succeeds after real phone traffic.
+4. **Game benefit tested:** multiple real eFootball matches show better responsiveness or fewer disruptions. This is not guaranteed by steps 1–3.
