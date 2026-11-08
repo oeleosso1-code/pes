@@ -7,7 +7,7 @@
 - [x] `RouteDecision`: only recommends a relay candidate with substantial, stable improvement.
 - [x] `RouteDecision`: missing samples produce insufficient-data advisory.
 - [x] `HealthDecision`: first-failure hold, match protection, repeated-failure shutdown intent.
-- [x] Pure Kotlin core compilation + **18** JUnit-style tests compiled and executed with a local Java assertion stub (not an Android Gradle build).
+- [x] Pure Kotlin core compilation + **25** JUnit-style tests compiled and executed with a local Java assertion stub (not an Android Gradle build).
 - [ ] GitHub Actions JUnit + APK build — **pending actual workflow result**.
 
 ## Required Android tests (not yet executed)
@@ -56,3 +56,20 @@ These scenarios require real device validation. WireGuard configured VPN and ser
 - [ ] Verify VpnService behavior on Android 14/15/16 and OEM background restrictions.
 - [ ] On-device test: reboot/restart, rotated Activity while VPN permission dialog is open, coexistence with an existing VPN.
 - [ ] Capture three comparable sessions on Wi-Fi and cellular with a legally operated WireGuard relay.
+
+## v0.4 benchmark and safety regression tests
+
+- [x] ABBA / BAAB covers an equal number of direct and VPN transactions.
+- [x] A changing network cancels the entire trial instead of comparing partial samples.
+- [x] Failed transactions retain failure counts (no fabricated latency values).
+- [x] Insufficient trial count is explicitly rejected.
+- [x] A relay with a single extreme P95 outlier is not recommended.
+- [x] Too many HTTP request failures yields INSUFFICIENT_DATA.
+- [x] Tiny absolute gains are not advertised as meaningful.
+- [ ] Real Android instrumented tests: swap Wi-Fi → mobile in the middle of the ABBA pass.
+- [ ] Confirm pending VPN state resets correctly after revoked Android VPN consent.
+- [ ] Build an APK with Android SDK and use a real authorized WireGuard relay.
+
+Note: v0.4's 25 test methods were executed through a minimal local Java JUnit
+compatibility stub with Kotlin/JVM compiler 1.9.0. They do **not** substitute
+for a real Android Gradle build or test runner.
