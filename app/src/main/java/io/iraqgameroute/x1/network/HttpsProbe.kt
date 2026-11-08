@@ -13,8 +13,9 @@ class HttpsProbe {
     )
 
     /** HTTP(S) request duration including connection/TLS/response headers, not ICMP ping. */
-    fun measure(network: Network? = null): Long? {
-        for (url in urls) {
+    fun measure(network: Network? = null, endpoint: Int? = null): Long? {
+        val candidates = if (endpoint == null) urls else listOf(urls[endpoint.coerceIn(0, urls.lastIndex)])
+        for (url in candidates) {
             val started = SystemClock.elapsedRealtimeNanos()
             val conn = try {
                 (network?.openConnection(url) ?: url.openConnection()) as HttpURLConnection
@@ -42,8 +43,10 @@ class HttpsProbe {
         return null
     }
 
-    fun sample(network: Network?, attempts: Int = 5): ProbeSummary {
+    /** For route comparisons pass the same endpoint index for BOTH paths. */
+    fun sample(network: Network?, attempts: Int = 5, endpoint: Int? = null): ProbeSummary {
         require(attempts in 1..10)
-        return ProbeSummary.fromMeasurements(List(attempts) { measure(network) })
+        require(endpoint == null || endpoint in urls.indices)
+        return ProbeSummary.fromMeasurements(List(attempts) { measure(network, endpoint) })
     }
 }
