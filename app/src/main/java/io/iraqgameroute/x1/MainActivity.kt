@@ -23,6 +23,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.wireguard.config.Config
 import io.iraqgameroute.x1.network.HttpsProbe
 import io.iraqgameroute.x1.analytics.RouteComparison
+import io.iraqgameroute.x1.analytics.RouteBenchmark
 import io.iraqgameroute.x1.network.NetworkMonitor
 import io.iraqgameroute.x1.vpn.ConfigPolicy
 import io.iraqgameroute.x1.vpn.WireGuardController
@@ -162,7 +163,7 @@ class MainActivity : ComponentActivity() {
         }
         root.card {
             addView(text("⚖️  مقارنة المسار المباشر وVPN", 17, Color.WHITE, true).margin(bottom = 8))
-            addView(text("عند اتصال VPN، نفحص خمس عينات HTTPS لكل مسار. لا تتضمن القياسات Ping كونامي ولا تنتج تغييراً تلقائياً.", 14, pale).margin(bottom = 10))
+            addView(text("نقيس 8 معاملات HTTPS لكل مسار بترتيب متناوب ABBA/BAAB؛ نوقف المقارنة إذا تغيرت الشبكة أو توقف النفق. هذه ليست Ping كونامي.", 14, pale).margin(bottom = 10))
             comparisonText = text("لم تُجرَ مقارنة بعد.", 14, pale)
             addView(comparisonText.margin(bottom = 10))
             compareButton = button("مقارنة المسارين", green, navy) { compareRoutes() }
@@ -247,25 +248,31 @@ class MainActivity : ComponentActivity() {
             val underlying = monitor.underlyingNetwork()
             val comparison = if (underlying != null && vpn.isConnected()) {
                 val tester = HttpsProbe()
-                // Compare the exact SAME HTTPS endpoint on both paths, not
-                // a fallback endpoint that differs across networks.
-                val firstDirect = tester.sample(underlying, 5, endpoint = 0)
-                val firstRelay = if (vpn.isConnected()) tester.sample(null, 5, endpoint = 0) else null
-                if (firstRelay == null) null else if (
-                    firstDirect.successful >= 3 && firstRelay.successful >= 3
-                ) RouteComparison(firstDirect, firstRelay) else {
-                    // Retry with the other, independent HTTPS endpoint only when
-                    // primary cannot be compared reliably.
-                    val secondDirect = tester.sample(underlying, 5, endpoint = 1)
-                    val secondRelay = if (vpn.isConnected()) tester.sample(null, 5, endpoint = 1) else null
-                    if (secondRelay != null) RouteComparison(secondDirect, secondRelay) else null
+                // Keep the exact same physical network and tunnel throughout.
+                // A comparison crossing a Wi-Fi/cellular switch is invalid.
+                val consistent = {
+                    !Thread.currentThread().isInterrupted && vpn.isConnected() &&
+                        monitor.underlyingNetwork() == underlying
                 }
+                fun compareEndpoint(endpoint: Int): RouteBenchmark.Result? = RouteBenchmark(
+                    directProbe = { tester.measure(underlying, endpoint) },
+                    vpnProbe = { tester.measure(null, endpoint) },
+                    isSameConnection = consistent
+                ).run(rounds = 4)
+                val first = compareEndpoint(0)
+                // Fallback if either path cannot reach the primary endpoint and
+                // the actual connection is still unchanged.
+                val chosen = if (first != null &&
+                    (first.direct.successful >= 7 && first.vpn.successful >= 7)) first
+                else if (consistent()) compareEndpoint(1) else null
+                if (chosen != null && consistent())
+                    RouteComparison(chosen.direct, chosen.vpn) else null
             } else null
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 compareButton.isEnabled = true
                 comparisonText.text = comparison?.arabicReport()
-                    ?: "لم تكتمل المقارنة: لا توجد شبكة مباشرة موثوقة، أو انتهى اتصال VPN أثناء القياس."
+                    ?: "أُلغيت المقارنة أو تعذّر القياس: ربما تغيرت شبكة Wi-Fi/البيانات أو توقف النفق."
             }
         }
     }
