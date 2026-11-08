@@ -2,7 +2,7 @@
 
 **Android network diagnostics + opt-in, per-app WireGuard tunnel for eFootball Mobile.**
 
-> **Status: `0.4.0-alpha` — source implementation, not yet device-certified.**
+> **Status: `0.5.0-alpha` — automated pre-match route trials, not yet device-certified.**
 > No guaranteed lower ping, no built-in relay service, and no interaction with Konami's game binaries/protocol.
 
 ## What works in source
@@ -20,7 +20,9 @@
 - Persists the pending VPN consent choice across Activity recreation, but never stores private keys on disk.
 - Rotation-safe observer cleanup so the previous screen cannot detach the new screen's tunnel status observer.
 - Explicit Stop VPN, Android VPN settings link, and state-specific errors.
-- Interleaved **ABBA/BAAB** direct vs VPN HTTPS benchmark (8 samples per path, identical target, aborts if Wi-Fi/cellular path or VPN changes) and conservative route recommendations. These are **not in-game RTT values** and the app never changes routes automatically on these results.
+- Interleaved **ABBA/BAAB** direct vs VPN HTTPS benchmark (8 samples per path, identical target, aborts if Wi-Fi/cellular path or VPN changes) and conservative route recommendations. These are **not in-game RTT values**.
+- **NEW v0.5**: explicit one-tap **automatic PRE-MATCH route optimizer**. Tests up to three already-imported, trusted WireGuard profiles one at a time; checks a fresh handshake and tunneled HTTPS, benchmarks each relay against the same underlying physical network, chooses only a statistically favorable candidate, then repeats its benchmark. Otherwise it turns the VPN OFF and uses direct networking (unless blocked by Android's VPN lockdown policy). It does not scan for free public relays, intercept eFootball traffic, or change a route once play starts.
+- Automatic trials can temporarily change connectivity while they run. Start them **before launching a match**. The tool cannot independently determine whether a match is already running, and its HTTPS scoring cannot guarantee better in-game gameplay. The Stop button cancels the running optimizer and queues tunnel shutdown.
 - Imported profiles persist across activity recreation (e.g. screen rotation) but **not application process restart**; no config secrets are written to disk.
 
 ## Real limitations
@@ -31,7 +33,7 @@
 4. Some users enable Android **Block connections without VPN**; then automatic direct fallback can be blocked by Android policy. This app opts out of always-on, but cannot bypass such device policy.
 5. Changing public IP while a match is running can terminate an online session. No mid-match auto-route switching.
 6. Only one VPN can be active per Android user/profile.
-7. This alpha has passed **pure Kotlin local checks only** and has not yet passed Android CI or real device tests as of this source snapshot. The Actions workflow will produce a **debug APK only if compilation succeeds**.
+7. v0.4 was built as a debug APK in GitHub Actions; **v0.5 requires its own CI build and physical-device validation**. Unit tests alone are not production certification.
 
 ## How to build
 
@@ -50,9 +52,10 @@ Or select **Actions → Android build and unit tests** in GitHub; after a green 
 3. Obtain a trusted WireGuard configuration for a server you administer or have permission to use.
 4. Import the `.conf` file (private key is never printed in logs). Choose it from the profile selector.
 5. Tap **تشغيل المسار المشفّر**, accept Android's VPN consent, verify success; the app tests actual HTTPS through the tunnel.
-6. Use **مقارنة المسارين** to compare HTTPS timing on direct and VPN routes. Activate **حماية المباراة** before playing if you prefer not to have automated recovery change your current route mid-game.
-7. If it fails, X1 attempts to disable the VPN. Use **إيقاف VPN** or the system VPN settings as needed.
-8. Compare actual eFootball match stability separately; stop the VPN if the direct path performs better.
+6. Before starting a match, tap **⚡ اختيار أفضل مسار تلقائياً قبل المباراة** to test up to three imported profiles. This temporarily brings VPN connections up/down, so do not run the optimizer during a match. If no VPN beats direct HTTPS decisively, direct stays selected.
+7. Alternatively use **مقارنة المسارين** to compare HTTPS timing on direct and VPN routes manually. **حماية المباراة** is ON by default and prevents automatic watchdog shutdown during gameplay.
+8. If the tunnel fails, X1 attempts to disable the VPN. Use **إيقاف VPN** or Android VPN settings as needed.
+9. Compare actual eFootball match stability separately; stop the VPN if the direct path performs better.
 
 **Do not upload real `.conf` files or private keys to GitHub.** `.gitignore` excludes them.
 
@@ -97,18 +100,12 @@ See [design](docs/ARCHITECTURE.md), [test plan](docs/TEST_PLAN.md), [source refe
 - Refuses to start a replacement tunnel if the previous backend still reports UP after an uncertain failure.
 - CI and real-device testing are mandatory prior to advertising any latency benefit; sample endpoints are Google/Cloudflare, not Konami.
 
-## CI SDK bootstrap fix (2026-11-08)
+## v0.5 automatic mode: design safeguards
 
-The first observed GitHub Actions job for v0.4 failed **before compilation**, in
-`android-actions/setup-android@v3`, because it attempted to install the obsolete
-Android SDK package `tools`. The workflow now uses preinstalled GitHub runner
-Android command-line tools to accept licenses and install `platforms;android-36`
-and `build-tools;35.0.0`. A passing run is still required to validate this fix
-and build an APK; do not equate the local Kotlin tests with successful Android CI.
-
-### Kotlin 2.4 compiler DSL correction
-
-The next CI run progressed through Android SDK setup, but Gradle script
-compilation failed because Kotlin 2.4.21 rejects `kotlinOptions.jvmTarget`.
-The build script now sets `kotlin.compilerOptions.jvmTarget = JVM_17`.
-This still requires a new successful Android CI run.
+- Opt-in user action and normal Android VPN consent are required. No always-on auto-start or hidden switching.
+- The best candidate is selected from **at most 3 locally imported, explicitly authorized** profiles. No shared public-server list is shipped.
+- Each candidate must pass a peer handshake check and actual HTTPS reachability through its tunnel; every pair of route measurements uses the same HTTP endpoint.
+- A candidate is enabled only when it is consistently better in **two separate benchmark passes**. If not, the VPN is turned off. This is still a heuristic for general internet access, not a measurement of eFootball game RTT.
+- Any observed change of the physical network, VPN failure, or user Stop request cancels the trial and attempts clean shutdown. Fail-open depends on Android lockdown settings; do not imply a 100% no-disconnect guarantee.
+- Watchdog's match protection remains enabled by default once a successful candidate is selected, so the app does not intentionally rotate the route during play.
+- Pure Kotlin local unit suite: 30/30 tests passed using a lightweight JUnit API stub, **not** an Android emulator/device test. Full GitHub Actions results and actual gaming impact are separate acceptance gates.
