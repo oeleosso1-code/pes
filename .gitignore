@@ -9,3 +9,11 @@
 *.wg
 *.log
 .DS_Store
+# Server and host credentials must never be committed.
+*.key
+*.pem
+*.p12
+*.pfx
+.env
+server/runtime/
+server/clients/
