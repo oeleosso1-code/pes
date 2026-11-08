@@ -7,15 +7,19 @@ import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
 import io.iraqgameroute.x1.analytics.HealthDecision
+import io.iraqgameroute.x1.analytics.AutoRouteSelector
+import io.iraqgameroute.x1.analytics.RouteBenchmark
+import io.iraqgameroute.x1.analytics.RouteDecision
 import io.iraqgameroute.x1.analytics.TunnelHandshake
 import io.iraqgameroute.x1.network.HttpsProbe
 import io.iraqgameroute.x1.network.NetworkMonitor
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /** Owns exactly one VPN engine, serializes transitions, and avoids silent match-time routing. */
 class WireGuardController(private val app: Application) {
-    enum class Status { OFF, CONNECTING, VERIFYING, ON, DEGRADED, DISCONNECTING, FAILED }
+    enum class Status { OFF, CONNECTING, VERIFYING, OPTIMIZING, ON, DEGRADED, DISCONNECTING, FAILED }
     data class Update(val status: Status, val message: String)
 
     @Volatile var current = Update(Status.OFF, "الاتصال المباشر متاح")
@@ -23,6 +27,9 @@ class WireGuardController(private val app: Application) {
     @Volatile var matchProtection: Boolean = true
         private set
 
+    data class RouteProfile(val title: String, val config: Config)
+
+    private val taskGeneration = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "vpn-control") }
     private val watchdog = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "vpn-watchdog") }
@@ -65,7 +72,9 @@ class WireGuardController(private val app: Application) {
     }
 
     fun connect(config: Config) {
+        val operation = taskGeneration.incrementAndGet()
         worker.execute {
+            if (taskGeneration.get() != operation) return@execute
             if (current.status !in listOf(Status.OFF, Status.FAILED)) return@execute
             if (monitor.underlyingNetwork() == null) {
                 update(Status.FAILED, "لا توجد شبكة مباشرة متحقّق منها؛ لم يُشغّل VPN")
@@ -116,7 +125,129 @@ class WireGuardController(private val app: Application) {
         }
     }
 
+    /**
+     * One explicit PRE-MATCH action, after Android VPN permission was granted.
+     * Evaluates at most three opted-in, imported profiles, alongside the SAME
+     * validated physical network. On insufficient evidence, exits to DIRECT.
+     * No remote configs, unapproved relays, silent mid-match rotation, or claims
+     * about Konami RTT. Candidate configurations remain in volatile RAM only.
+     */
+    fun optimizeBeforeMatch(profiles: List<RouteProfile>) {
+        if (profiles.isEmpty()) {
+            update(Status.FAILED, "لا توجد ملفات خادم موثوقة لاختبارها")
+            return
+        }
+        val operation = taskGeneration.incrementAndGet()
+        val candidates = profiles.take(3).toList()
+        worker.execute {
+            if (taskGeneration.get() != operation) return@execute
+            if (current.status !in listOf(Status.OFF, Status.FAILED)) return@execute
+            val underlying = monitor.underlyingNetwork()
+            if (underlying == null || monitor.snapshot().vpnActive) {
+                update(Status.FAILED, "لا تتوفر شبكة مباشرة مستقرة أو يوجد VPN آخر على الجهاز")
+                return@execute
+            }
+            val existingUp = try {
+                backend?.getState(tunnel) == Tunnel.State.UP
+            } catch (_: Exception) { true } catch (_: LinkageError) { true }
+            if (existingUp) {
+                update(Status.FAILED, "VPN سابق غير مؤكد الإيقاف؛ افتح إعدادات النظام")
+                return@execute
+            }
+            val sameNetwork = { taskGeneration.get() == operation &&
+                monitor.underlyingNetwork() == underlying }
+            val measurements = mutableListOf<AutoRouteSelector.Observation>()
+            try {
+                val engine = backend ?: GoBackend(app).also { backend = it }
+                for ((index, profile) in candidates.withIndex()) {
+                    if (!sameNetwork()) break
+                    update(Status.OPTIMIZING,
+                        "فحص ${index + 1}/${candidates.size}: ${profile.title} — لا تفتح مباراة الآن")
+                    engine.setState(tunnel, Tunnel.State.UP, profile.config)
+                    val ready = verifyTunnel(engine, 3, sameNetwork)
+                    if (ready && sameNetwork()) {
+                        val viable = {
+                            sameNetwork() && engine.getState(tunnel) == Tunnel.State.UP
+                        }
+                        val benchmark = RouteBenchmark(
+                            directProbe = { probe.measure(underlying, 0) },
+                            vpnProbe = { probe.measure(null, 0) },
+                            isSameConnection = viable
+                        ).run(rounds = 4)
+                        if (benchmark != null && viable()) {
+                            measurements += AutoRouteSelector.Observation(
+                                index, benchmark.direct, benchmark.vpn)
+                        }
+                    }
+                    // Close the trial tunnel regardless of whether it performed well.
+                    if (!safeStop()) throw IllegalStateException("TUNNEL_STOP_UNCONFIRMED")
+                }
+                if (!sameNetwork()) {
+                    val stopped = safeStop()
+                    update(if (stopped) Status.OFF else Status.FAILED,
+                        if (stopped) "أُلغيت المقارنة بسبب تغير الشبكة أو طلب الإيقاف؛ اتصال مباشر"
+                        else "تعذر تأكيد إيقاف النفق؛ افتح إعدادات VPN")
+                    return@execute
+                }
+                val selected = AutoRouteSelector.choose(measurements)
+                if (selected == null) {
+                    update(Status.OFF, "لا يوجد تحسين مقنع في HTTPS؛ أبقينا الاتصال المباشر")
+                    return@execute
+                }
+                val winner = candidates[selected.profileIndex]
+                update(Status.VERIFYING, "المسار المرشح: ${winner.title}؛ يجري تأكيد الاستقرار مجدداً…")
+                engine.setState(tunnel, Tunnel.State.UP, winner.config)
+                val recovered = verifyTunnel(engine, 3, sameNetwork)
+                val finalCheck = if (recovered && sameNetwork()) RouteBenchmark(
+                    directProbe = { probe.measure(underlying, 0) },
+                    vpnProbe = { probe.measure(null, 0) },
+                    isSameConnection = {
+                        sameNetwork() && engine.getState(tunnel) == Tunnel.State.UP
+                    }
+                ).run(rounds = 4) else null
+                if (finalCheck != null && sameNetwork() &&
+                    RouteDecision.recommend(finalCheck.direct, finalCheck.vpn) ==
+                    RouteDecision.Advice.RELAY_CANDIDATE) {
+                    consecutiveFailures = 0
+                    matchProtection = true // Never rotate or stop automatically during play.
+                    update(Status.ON,
+                        "المسار المختار: ${winner.title}. تحسن HTTPS تكرر؛ جودة بيس تحتاج تجربة فعلية")
+                } else {
+                    val stopped = safeStop()
+                    update(if (stopped) Status.OFF else Status.FAILED,
+                        if (stopped) "لم يتكرر التحسن بشكل مقنع؛ عاد الاتصال المباشر"
+                        else "تعذر تأكيد إيقاف النفق؛ افتح إعدادات VPN")
+                }
+            } catch (_: Exception) {
+                val stopped = safeStop()
+                update(if (stopped) Status.OFF else Status.FAILED,
+                    if (stopped) "فشل الاختبار الآمن أو تغير الاتصال؛ بقي المسار المباشر"
+                    else "تعذر تأكيد إيقاف VPN؛ افتح إعدادات النظام")
+            } catch (_: LinkageError) {
+                val stopped = safeStop()
+                update(if (stopped) Status.OFF else Status.FAILED,
+                    if (stopped) "مكوّن النفق غير متوافق؛ أُوقف VPN"
+                    else "حالة VPN غير مؤكدة؛ افتح إعدادات النظام")
+            }
+        }
+    }
+
+    /** Verify genuine HTTPS connectivity and WireGuard handshake, not just a VPN icon. */
+    private fun verifyTunnel(engine: GoBackend, attempts: Int, keepGoing: () -> Boolean): Boolean {
+        repeat(attempts) { attempt ->
+            if (!keepGoing()) return false
+            try {
+                if (engine.getState(tunnel) == Tunnel.State.UP &&
+                    probe.measure() != null && freshHandshake(engine)) return true
+            } catch (_: Exception) { /* Try again; never expose private config in errors. */ }
+            if (attempt < attempts - 1) Thread.sleep(800)
+        }
+        return false
+    }
+
     fun disconnect() {
+        // Cancels a long pre-match trial promptly, rather than waiting for all candidates.
+        taskGeneration.incrementAndGet()
         worker.execute {
             if (current.status == Status.OFF) return@execute
             update(Status.DISCONNECTING, "جارٍ إيقاف VPN…")
